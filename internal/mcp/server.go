@@ -9,6 +9,7 @@ import (
 	"os"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -1300,14 +1301,55 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 		return toolResult(string(jsonBytes)), nil
 	}
 
-	// Text output.
-	text += fmt.Sprintf("\nMemories (%d):\n\n", len(resultMemories))
-	for i, mem := range resultMemories {
-		text += fmt.Sprintf("%d. %s\n   %s\n   Created: %s\n\n",
-			i+1, mem.ID, mem.Summary, mem.CreatedAt.Format("2006-01-02 15:04"))
+	// Group memories by type for a structured briefing
+	grouped := make(map[string][]store.Memory)
+	for _, mem := range resultMemories {
+		t := mem.Type
+		if t == "" {
+			t = "general"
+		}
+		grouped[t] = append(grouped[t], mem)
 	}
-	if synthesis != "" {
-		text += fmt.Sprintf("\nSynthesis:\n%s\n", synthesis)
+
+	// Sort each group by salience descending
+	for _, mems := range grouped {
+		sort.Slice(mems, func(i, j int) bool {
+			return mems[i].Salience > mems[j].Salience
+		})
+	}
+
+	// Render grouped briefing — ordered by importance to agents
+	typeOrder := []string{"decision", "error", "insight", "learning", "general"}
+	typeLabels := map[string]string{
+		"decision": "Decisions",
+		"error":    "Errors",
+		"insight":  "Insights",
+		"learning": "Learnings",
+		"general":  "General",
+	}
+	maxPerGroup := 5
+
+	for _, t := range typeOrder {
+		mems, ok := grouped[t]
+		if !ok || len(mems) == 0 {
+			continue
+		}
+		label := typeLabels[t]
+		shown := len(mems)
+		if shown > maxPerGroup {
+			shown = maxPerGroup
+		}
+		text += fmt.Sprintf("\n%s (%d):\n", label, len(mems))
+		for _, mem := range mems[:shown] {
+			summary := mem.Summary
+			if len(summary) > 100 {
+				summary = summary[:100] + "..."
+			}
+			text += fmt.Sprintf("  - [%s] %s (%s)\n", mem.ID, summary, mem.CreatedAt.Format("2006-01-02"))
+		}
+		if len(mems) > maxPerGroup {
+			text += fmt.Sprintf("  ... and %d more\n", len(mems)-maxPerGroup)
+		}
 	}
 
 	return toolResult(text), nil
