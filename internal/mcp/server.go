@@ -704,7 +704,11 @@ func (srv *MCPServer) handleRecall(ctx context.Context, args map[string]interfac
 		}
 		contentSnippet := ""
 		if mem.Memory.Content != "" && mem.Memory.Content != mem.Memory.Summary {
-			contentSnippet = fmt.Sprintf("\n   Content: %s", mem.Memory.Content)
+			content := mem.Memory.Content
+			if len(content) > 300 {
+				content = content[:300] + "..."
+			}
+			contentSnippet = fmt.Sprintf("\n   Content: %s", content)
 		}
 		explanationInfo := ""
 		if explain && mem.Explanation != "" {
@@ -1301,6 +1305,45 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 			return toolResult(text), nil
 		}
 		return toolResult(string(jsonBytes)), nil
+	}
+
+	// Find the most recent session's memories for continuity context
+	if len(resultMemories) > 0 {
+		// Find the latest session ID among returned memories
+		var latestSession string
+		var latestTime time.Time
+		for _, mem := range resultMemories {
+			if mem.SessionID != "" && mem.CreatedAt.After(latestTime) {
+				latestTime = mem.CreatedAt
+				latestSession = mem.SessionID
+			}
+		}
+		// If the latest session isn't this session, show what the last agent did
+		if latestSession != "" && latestSession != srv.sessionID {
+			var lastSessionMems []store.Memory
+			for _, mem := range resultMemories {
+				if mem.SessionID == latestSession {
+					lastSessionMems = append(lastSessionMems, mem)
+				}
+			}
+			if len(lastSessionMems) > 0 {
+				text += "\nLast session:\n"
+				shown := len(lastSessionMems)
+				if shown > 3 {
+					shown = 3
+				}
+				for _, mem := range lastSessionMems[:shown] {
+					summary := mem.Summary
+					if len(summary) > 120 {
+						summary = summary[:120] + "..."
+					}
+					text += fmt.Sprintf("  - [%s] %s\n", mem.Type, summary)
+				}
+				if len(lastSessionMems) > 3 {
+					text += fmt.Sprintf("  ... and %d more from that session\n", len(lastSessionMems)-3)
+				}
+			}
+		}
 	}
 
 	// Group memories by type for a structured briefing
