@@ -753,51 +753,54 @@ func (srv *MCPServer) handleRecall(ctx context.Context, args map[string]interfac
 
 	text := fmt.Sprintf("Found %d memories (query_id: %s):\n\n", len(result.Memories), result.QueryID)
 	for i, mem := range result.Memories {
-		projectInfo := ""
-		if mem.Memory.Project != "" {
-			projectInfo = fmt.Sprintf("\n   Project: %s", mem.Memory.Project)
+		// Primary line: score, ID, summary
+		summary := mem.Memory.Summary
+		if len(summary) > 120 {
+			summary = summary[:120] + "..."
 		}
-		contentSnippet := ""
+		text += fmt.Sprintf("%d. [%.3f] %s\n   %s\n", i+1, mem.Score, mem.Memory.ID, summary)
+
+		// Content — only if different from summary, truncated
 		if mem.Memory.Content != "" && mem.Memory.Content != mem.Memory.Summary {
 			content := mem.Memory.Content
 			if len(content) > 300 {
 				content = content[:300] + "..."
 			}
-			contentSnippet = fmt.Sprintf("\n   Content: %s", content)
+			text += fmt.Sprintf("   Content: %s\n", content)
 		}
-		explanationInfo := ""
+
+		// Metadata line: type, date, project — compact
+		meta := fmt.Sprintf("   %s, %s", mem.Memory.Type, mem.Memory.CreatedAt.Format("2006-01-02 15:04"))
+		if mem.Memory.Project != "" {
+			meta += ", " + mem.Memory.Project
+		}
 		if explain && mem.Explanation != "" {
-			explanationInfo = fmt.Sprintf("\n   Explanation: %s", mem.Explanation)
+			meta += "\n   Score: " + mem.Explanation
 		}
-		associationInfo := ""
+		text += meta + "\n"
+
+		// Associations — only when explicitly requested
 		if includeAssociations {
 			assocs, aErr := srv.store.GetAssociations(ctx, mem.Memory.ID)
 			if aErr == nil && len(assocs) > 0 {
-				limit := 3
-				if len(assocs) < limit {
-					limit = len(assocs)
+				shown := 3
+				if len(assocs) < shown {
+					shown = len(assocs)
 				}
-				associationInfo = "\n   Related:"
-				for j := 0; j < limit; j++ {
+				for j := 0; j < shown; j++ {
 					a := assocs[j]
 					targetSummary := a.TargetID[:8]
 					if tm, tErr := srv.store.GetMemory(ctx, a.TargetID); tErr == nil {
 						targetSummary = tm.Summary
-						if len(targetSummary) > 80 {
-							targetSummary = targetSummary[:80] + "..."
+						if len(targetSummary) > 60 {
+							targetSummary = targetSummary[:60] + "..."
 						}
 					}
-					associationInfo += fmt.Sprintf("\n     - [%.2f, %s] %s", a.Strength, a.RelationType, targetSummary)
+					text += fmt.Sprintf("   -> [%.2f] %s\n", a.Strength, targetSummary)
 				}
 			}
 		}
-		rawInfo := ""
-		if mem.Memory.RawID != "" && mem.Memory.RawID != mem.Memory.ID {
-			rawInfo = fmt.Sprintf("\n   Raw ID: %s", mem.Memory.RawID)
-		}
-		text += fmt.Sprintf("%d. [%.3f] %s\n   Summary: %s%s\n   Created: %s%s%s%s%s\n\n",
-			i+1, mem.Score, mem.Memory.ID, mem.Memory.Summary, contentSnippet,
-			mem.Memory.CreatedAt.Format("2006-01-02 15:04"), projectInfo, rawInfo, explanationInfo, associationInfo)
+		text += "\n"
 	}
 
 	if result.Synthesis != "" {
