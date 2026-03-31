@@ -235,6 +235,61 @@ Direct lookup: recall with id parameter accepts any memory ID (from remember or 
 Memories are project-scoped and session-tagged automatically. Only store what a future session would need — not file paths or things derivable from code.`
 
 func (srv *MCPServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
+	instructions := serverInstructions
+
+	// Embed a mini-briefing in the instructions so the agent has context on turn 1.
+	if srv.project != "" {
+		ctx := context.Background()
+		memories, err := srv.store.SearchByProject(ctx, srv.project, "", 10)
+		if err == nil && len(memories) > 0 {
+			briefing := fmt.Sprintf("\n\nProject: %s (%d memories)\n", srv.project, len(memories))
+
+			// Show last session context
+			var latestSession string
+			var latestTime time.Time
+			for _, mem := range memories {
+				if mem.SessionID != "" && mem.CreatedAt.After(latestTime) {
+					latestTime = mem.CreatedAt
+					latestSession = mem.SessionID
+				}
+			}
+			if latestSession != "" && latestSession != srv.sessionID {
+				for _, mem := range memories {
+					if mem.SessionID == latestSession {
+						content := mem.Content
+						if len(content) > 200 {
+							content = content[:200] + "..."
+						}
+						briefing += fmt.Sprintf("Last session: %s\n", content)
+						break // just the most recent
+					}
+				}
+			}
+
+			// Count by type
+			typeCounts := make(map[string]int)
+			for _, mem := range memories {
+				t := mem.Type
+				if t == "" {
+					t = "general"
+				}
+				typeCounts[t]++
+			}
+			parts := []string{}
+			for _, t := range []string{"decision", "error", "insight", "learning", "general"} {
+				if c, ok := typeCounts[t]; ok && c > 0 {
+					parts = append(parts, fmt.Sprintf("%d %ss", c, t))
+				}
+			}
+			if len(parts) > 0 {
+				briefing += "Contains: " + strings.Join(parts, ", ") + "\n"
+			}
+			briefing += "Call recall_project for the full briefing."
+
+			instructions += briefing
+		}
+	}
+
 	result := map[string]interface{}{
 		"protocolVersion": "2024-11-05",
 		"capabilities": map[string]interface{}{
@@ -244,7 +299,7 @@ func (srv *MCPServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 			"name":    "mnemonic",
 			"version": srv.version,
 		},
-		"instructions": serverInstructions,
+		"instructions": instructions,
 	}
 	return successResponse(req.ID, result)
 }
@@ -1763,6 +1818,10 @@ func (srv *MCPServer) handleForget(ctx context.Context, args map[string]interfac
 			}
 			srv.log.Info("memory archived", "memory_id", mem.ID, "via_raw_id", id)
 			return toolResult(fmt.Sprintf("Archived memory %s", mem.ID)), nil
+		}
+		// Check if it was deduplicated (raw exists but no encoded memory)
+		if raw, rawErr := srv.store.GetRaw(ctx, id); rawErr == nil && raw.Processed {
+			return toolResult(fmt.Sprintf("Memory %s was deduplicated — no encoded memory to archive.", id)), nil
 		}
 		return nil, fmt.Errorf("memory not found: %s", id)
 	}
