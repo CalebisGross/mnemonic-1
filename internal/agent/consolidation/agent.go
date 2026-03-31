@@ -1421,7 +1421,7 @@ func (ca *ConsolidationAgent) decayPatterns(ctx context.Context) (int, error) {
 
 		// Compute evidence health ratio for all patterns with evidence.
 		totalEvidence := len(p.EvidenceIDs)
-		var evidenceRatio float32 = 1.0
+		var evidenceRatio float32
 		if totalEvidence > 0 {
 			activeEvidence := 0
 			for _, memID := range p.EvidenceIDs {

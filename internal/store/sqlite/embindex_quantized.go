@@ -1,7 +1,6 @@
 package sqlite
 
 import (
-	"math"
 	"sort"
 	"sync"
 
@@ -178,20 +177,3 @@ func (qi *quantizedIndex) Stats() (count int, dims int, origBytes int, quantByte
 	return
 }
 
-// cosineSimilarity computes exact cosine similarity (used as fallback).
-func cosineSimilarity(a, b []float32) float32 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
-	}
-	denom := math.Sqrt(normA) * math.Sqrt(normB)
-	if denom == 0 {
-		return 0
-	}
-	return float32(dot / denom)
-}

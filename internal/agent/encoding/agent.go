@@ -208,14 +208,6 @@ func (ea *EncodingAgent) maxRetries() int {
 	return defaultMaxRetries
 }
 
-// maxLLMContent returns the configured max LLM content chars, falling back to the default.
-func (ea *EncodingAgent) maxLLMContent() int {
-	if ea.config.MaxLLMContentChars > 0 {
-		return ea.config.MaxLLMContentChars
-	}
-	return defaultMaxLLMContentChars
-}
-
 // maxEmbedding returns the configured max embedding chars, falling back to the default.
 func (ea *EncodingAgent) maxEmbedding() int {
 	if ea.config.MaxEmbeddingChars > 0 {
@@ -968,8 +960,6 @@ func (ea *EncodingAgent) encodeMemory(ctx context.Context, rawID string) error {
 	return nil
 }
 
-// defaultMaxLLMContentChars is the default maximum characters of raw content to send to the LLM for compression.
-const defaultMaxLLMContentChars = 8000
 
 // defaultMaxEmbeddingChars is the default maximum characters to send to the embedding model.
 const defaultMaxEmbeddingChars = 4000
