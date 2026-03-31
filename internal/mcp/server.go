@@ -241,7 +241,10 @@ func (srv *MCPServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 	if srv.project != "" {
 		ctx := context.Background()
 		memories, err := srv.store.SearchByProject(ctx, srv.project, "", 10)
-		if err == nil && len(memories) > 0 {
+		if err == nil && len(memories) == 0 {
+			// First use — no memories yet
+			instructions += fmt.Sprintf("\n\nProject: %s (new — no memories yet)\nStart by using remember to store decisions and insights as you work.", srv.project)
+		} else if err == nil && len(memories) > 0 {
 			briefing := fmt.Sprintf("\n\nProject: %s (%d memories)\n", srv.project, len(memories))
 
 			// Show last session context
