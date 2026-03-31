@@ -11,7 +11,6 @@ import (
 
 	"github.com/appsprout-dev/mnemonic/internal/agent/agentutil"
 	"github.com/appsprout-dev/mnemonic/internal/events"
-	"github.com/appsprout-dev/mnemonic/internal/llm"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 	"github.com/appsprout-dev/mnemonic/internal/store/storetest"
 )
@@ -117,35 +116,25 @@ func (m *mockStore) GetMemoryAttributes(ctx context.Context, memoryID string) (s
 }
 
 // ---------------------------------------------------------------------------
-// Mock LLM Provider
+// Mock Embedding Provider
 // ---------------------------------------------------------------------------
 
-type mockLLMProvider struct {
-	completeFn  func(ctx context.Context, req llm.CompletionRequest) (llm.CompletionResponse, error)
-	embedFn     func(ctx context.Context, text string) ([]float32, error)
-	completions []llm.CompletionRequest // track calls
+type mockEmbeddingProvider struct {
+	embedFn func(ctx context.Context, text string) ([]float32, error)
 }
 
-func newMockLLMProvider() *mockLLMProvider {
-	return &mockLLMProvider{}
+func newMockEmbeddingProvider() *mockEmbeddingProvider {
+	return &mockEmbeddingProvider{}
 }
 
-func (m *mockLLMProvider) Complete(ctx context.Context, req llm.CompletionRequest) (llm.CompletionResponse, error) {
-	m.completions = append(m.completions, req)
-	if m.completeFn != nil {
-		return m.completeFn(ctx, req)
-	}
-	return llm.CompletionResponse{Content: `{"summary":"merged gist","content":"combined content"}`}, nil
-}
-
-func (m *mockLLMProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+func (m *mockEmbeddingProvider) Embed(ctx context.Context, text string) ([]float32, error) {
 	if m.embedFn != nil {
 		return m.embedFn(ctx, text)
 	}
 	return []float32{0.1, 0.2, 0.3}, nil
 }
 
-func (m *mockLLMProvider) BatchEmbed(ctx context.Context, texts []string) ([][]float32, error) {
+func (m *mockEmbeddingProvider) BatchEmbed(_ context.Context, texts []string) ([][]float32, error) {
 	results := make([][]float32, len(texts))
 	for i := range texts {
 		results[i] = []float32{0.1, 0.2, 0.3}
@@ -153,12 +142,8 @@ func (m *mockLLMProvider) BatchEmbed(ctx context.Context, texts []string) ([][]f
 	return results, nil
 }
 
-func (m *mockLLMProvider) Health(ctx context.Context) error {
+func (m *mockEmbeddingProvider) Health(_ context.Context) error {
 	return nil
-}
-
-func (m *mockLLMProvider) ModelInfo(ctx context.Context) (llm.ModelMetadata, error) {
-	return llm.ModelMetadata{Name: "mock-model"}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +189,7 @@ func almostEqual(a, b, tolerance float32) bool {
 
 func TestNewConsolidationAgent(t *testing.T) {
 	ms := newMockStore()
-	mlp := newMockLLMProvider()
+	mlp := newMockEmbeddingProvider()
 	cfg := testConfig()
 	log := testLogger()
 
@@ -238,7 +223,7 @@ func TestNewConsolidationAgent(t *testing.T) {
 
 func TestConsolidationAgentName(t *testing.T) {
 	ms := newMockStore()
-	mlp := newMockLLMProvider()
+	mlp := newMockEmbeddingProvider()
 	agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 
 	name := agent.Name()
@@ -345,7 +330,7 @@ func TestCosineSimilarity(t *testing.T) {
 
 func TestFindClusters(t *testing.T) {
 	ms := newMockStore()
-	mlp := newMockLLMProvider()
+	mlp := newMockEmbeddingProvider()
 	cfg := testConfig()
 	cfg.MinClusterSize = 2 // lower threshold for test
 	agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -423,7 +408,7 @@ func TestDecaySalience(t *testing.T) {
 
 	t.Run("applies decay to active and fading memories", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.DecayRate = 0.95
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -479,7 +464,7 @@ func TestDecaySalience(t *testing.T) {
 
 	t.Run("recency protection for recently accessed memories", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.DecayRate = 0.95
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -530,7 +515,7 @@ func TestDecaySalience(t *testing.T) {
 
 	t.Run("access count bonus reduces decay", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.DecayRate = 0.95
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -575,7 +560,7 @@ func TestDecaySalience(t *testing.T) {
 
 	t.Run("critical significance slows decay", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.DecayRate = 0.95
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -620,7 +605,7 @@ func TestDecaySalience(t *testing.T) {
 
 	t.Run("no memories returns zero counts", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 
 		ms.listMemoriesFn = func(ctx context.Context, state string, limit, offset int) ([]store.Memory, error) {
@@ -641,7 +626,7 @@ func TestDecaySalience(t *testing.T) {
 
 	t.Run("salience floor at 0.01", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.DecayRate = 0.01 // very aggressive decay
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -683,7 +668,7 @@ func TestDecaySalience(t *testing.T) {
 
 	t.Run("zero LastAccessed falls back to CreatedAt", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.DecayRate = 0.95
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -727,7 +712,7 @@ func TestDecaySalience(t *testing.T) {
 func TestTransitionStates(t *testing.T) {
 	t.Run("active memory below fade threshold transitions to fading", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.FadeThreshold = 0.3
 		cfg.ArchiveThreshold = 0.1
@@ -767,7 +752,7 @@ func TestTransitionStates(t *testing.T) {
 
 	t.Run("active memory below archive threshold goes straight to archived", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.FadeThreshold = 0.3
 		cfg.ArchiveThreshold = 0.1
@@ -806,7 +791,7 @@ func TestTransitionStates(t *testing.T) {
 
 	t.Run("fading memory below archive threshold transitions to archived", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.FadeThreshold = 0.3
 		cfg.ArchiveThreshold = 0.1
@@ -835,7 +820,7 @@ func TestTransitionStates(t *testing.T) {
 
 	t.Run("memory above thresholds stays in current state", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.FadeThreshold = 0.3
 		cfg.ArchiveThreshold = 0.1
@@ -867,7 +852,7 @@ func TestTransitionStates(t *testing.T) {
 
 	t.Run("mixed memories transition correctly", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.FadeThreshold = 0.3
 		cfg.ArchiveThreshold = 0.1
@@ -907,7 +892,7 @@ func TestTransitionStates(t *testing.T) {
 func TestPruneAssociations(t *testing.T) {
 	t.Run("delegates to store with correct threshold", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.AssocPruneThreshold = 0.05
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -934,7 +919,7 @@ func TestPruneAssociations(t *testing.T) {
 
 	t.Run("propagates store error", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 
 		ms.pruneWeakAssociationsFn = func(ctx context.Context, threshold float32) (int, error) {
@@ -951,7 +936,7 @@ func TestPruneAssociations(t *testing.T) {
 func TestDeleteExpired(t *testing.T) {
 	t.Run("delegates to store with correct cutoff", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.RetentionWindow = 90 * 24 * time.Hour
 		agent := NewConsolidationAgent(ms, mlp, cfg, testLogger())
@@ -981,7 +966,7 @@ func TestDeleteExpired(t *testing.T) {
 
 	t.Run("propagates store error", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 
 		ms.deleteOldArchivedFn = func(ctx context.Context, olderThan time.Time) (int, error) {
@@ -998,7 +983,7 @@ func TestDeleteExpired(t *testing.T) {
 func TestRunCycle(t *testing.T) {
 	t.Run("full cycle end-to-end", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		cfg := testConfig()
 		cfg.DecayRate = 0.95
 		cfg.FadeThreshold = 0.3
@@ -1079,7 +1064,7 @@ func TestRunCycle(t *testing.T) {
 
 	t.Run("cycle with no bus does not panic", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 		// bus is nil
 
@@ -1098,7 +1083,7 @@ func TestRunCycle(t *testing.T) {
 
 	t.Run("cycle handles decay error", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 
 		ms.listMemoriesFn = func(ctx context.Context, state string, limit, offset int) ([]store.Memory, error) {
@@ -1119,7 +1104,7 @@ func TestRunCycle(t *testing.T) {
 
 	t.Run("RunOnce delegates to runCycle", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 
 		ms.listMemoriesFn = func(ctx context.Context, state string, limit, offset int) ([]store.Memory, error) {
@@ -1137,7 +1122,7 @@ func TestRunCycle(t *testing.T) {
 
 	t.Run("RunConsolidation delegates to runCycle", func(t *testing.T) {
 		ms := newMockStore()
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 		agent := NewConsolidationAgent(ms, mlp, testConfig(), testLogger())
 
 		ms.listMemoriesFn = func(ctx context.Context, state string, limit, offset int) ([]store.Memory, error) {
@@ -1221,7 +1206,7 @@ func TestCreateGistEmptySummaryFallback(t *testing.T) {
 				return nil
 			},
 		}
-		mlp := newMockLLMProvider()
+		mlp := newMockEmbeddingProvider()
 
 		ca := NewConsolidationAgent(ms, mlp, DefaultConfig(), slog.New(slog.NewTextHandler(os.Stderr, nil)))
 

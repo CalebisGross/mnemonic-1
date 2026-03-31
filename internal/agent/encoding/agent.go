@@ -9,14 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 
 	"github.com/appsprout-dev/mnemonic/internal/agent/agentutil"
+	"github.com/appsprout-dev/mnemonic/internal/fsutil"
 	"github.com/appsprout-dev/mnemonic/internal/agent/retrieval"
 	"github.com/appsprout-dev/mnemonic/internal/embedding"
 	"github.com/appsprout-dev/mnemonic/internal/events"
 	"github.com/appsprout-dev/mnemonic/internal/store"
-	"github.com/appsprout-dev/mnemonic/internal/watcher/filesystem"
 )
 
 // defaultMaxRetries is the default number of encoding attempts before a raw memory is skipped.
@@ -501,7 +500,7 @@ func (ea *EncodingAgent) pollAndProcessRawMemories(ctx context.Context) error {
 	for _, raw := range unprocessed {
 		if path, ok := raw.Metadata["path"]; ok {
 			if pathStr, ok := path.(string); ok && pathStr != "" {
-				if filesystem.MatchesExcludePattern(pathStr, ea.config.ExcludePatterns) {
+				if fsutil.MatchesExcludePattern(pathStr, ea.config.ExcludePatterns) {
 					ea.log.Debug("skipping excluded path", "raw_id", raw.ID, "path", pathStr)
 					_ = ea.store.MarkRawProcessed(ctx, raw.ID)
 					continue
@@ -699,7 +698,7 @@ func (ea *EncodingAgent) persistEncodedMemory(ctx context.Context, raw store.Raw
 		}
 	}
 
-	memoryID := uuid.New().String()
+	memoryID := raw.ID // unified: encoded memory shares the raw memory's ID
 	memory := store.Memory{
 		ID:           memoryID,
 		RawID:        raw.ID,
@@ -1502,3 +1501,4 @@ func conceptOverlap(queryConcepts, candidateConcepts []string) float64 {
 	}
 	return float64(matches) / float64(len(queryConcepts))
 }
+

@@ -18,7 +18,6 @@ import (
 	"github.com/appsprout-dev/mnemonic/internal/agent/episoding"
 	"github.com/appsprout-dev/mnemonic/internal/agent/metacognition"
 	"github.com/appsprout-dev/mnemonic/internal/agent/orchestrator"
-	"github.com/appsprout-dev/mnemonic/internal/agent/perception"
 	"github.com/appsprout-dev/mnemonic/internal/agent/reactor"
 	"github.com/appsprout-dev/mnemonic/internal/agent/retrieval"
 	"github.com/appsprout-dev/mnemonic/internal/api"
@@ -33,12 +32,6 @@ import (
 	"github.com/appsprout-dev/mnemonic/internal/store"
 	"github.com/appsprout-dev/mnemonic/internal/store/sqlite"
 	"github.com/appsprout-dev/mnemonic/internal/updater"
-	"github.com/appsprout-dev/mnemonic/internal/watcher"
-
-	clipwatcher "github.com/appsprout-dev/mnemonic/internal/watcher/clipboard"
-	fswatcher "github.com/appsprout-dev/mnemonic/internal/watcher/filesystem"
-	gitwatcher "github.com/appsprout-dev/mnemonic/internal/watcher/git"
-	termwatcher "github.com/appsprout-dev/mnemonic/internal/watcher/terminal"
 
 	"github.com/google/uuid"
 )
@@ -66,7 +59,7 @@ func serveCommand(configPath string) {
 	}
 
 	// Build project resolver from config
-	projectResolver := config.NewProjectResolver(cfg.Projects)
+
 
 	// Initialize logger
 	log, err := logger.New(logger.Config{
@@ -285,145 +278,6 @@ func serveCommand(configPath string) {
 			log.Error("failed to start encoding agent", "error", err)
 		} else {
 			log.Info("encoding agent started")
-		}
-	}
-
-	// --- Build watchers based on config ---
-	var watchers []watcher.Watcher
-	var percAgent *perception.PerceptionAgent
-
-	if cfg.Perception.Enabled {
-		if cfg.Perception.Filesystem.Enabled {
-			// Auto-detect noisy app directories and merge with configured exclusions
-			autoExclusions := fswatcher.DetectNoisyApps(log)
-			allExclusions := cfg.Perception.Filesystem.ExcludePatterns
-			for _, pattern := range autoExclusions {
-				if !fswatcher.MatchesExcludePattern(pattern, allExclusions) {
-					allExclusions = append(allExclusions, pattern)
-				}
-			}
-
-			fsw, err := fswatcher.NewFilesystemWatcher(fswatcher.Config{
-				WatchDirs:          cfg.Perception.Filesystem.WatchDirs,
-				ExcludePatterns:    allExclusions,
-				SensitivePatterns:  cfg.Perception.Filesystem.SensitivePatterns,
-				MaxContentBytes:    cfg.Perception.Filesystem.MaxContentBytes,
-				MaxWatches:         cfg.Perception.Filesystem.MaxWatches,
-				ShallowDepth:       cfg.Perception.Filesystem.ShallowDepth,
-				PollIntervalSec:    cfg.Perception.Filesystem.PollIntervalSec,
-				PromotionThreshold: cfg.Perception.Filesystem.PromotionThreshold,
-				DemotionTimeoutMin: cfg.Perception.Filesystem.DemotionTimeoutMin,
-			}, log)
-			if err != nil {
-				log.Error("failed to create filesystem watcher", "error", err)
-			} else {
-				watchers = append(watchers, fsw)
-				log.Info("filesystem watcher configured", "dirs", cfg.Perception.Filesystem.WatchDirs)
-			}
-		}
-
-		if cfg.Perception.Terminal.Enabled {
-			tw, err := termwatcher.NewTerminalWatcher(termwatcher.Config{
-				Shell:           cfg.Perception.Terminal.Shell,
-				PollIntervalSec: cfg.Perception.Terminal.PollIntervalSec,
-				ExcludePatterns: cfg.Perception.Terminal.ExcludePatterns,
-			}, log)
-			if err != nil {
-				log.Error("failed to create terminal watcher", "error", err)
-			} else {
-				watchers = append(watchers, tw)
-				log.Info("terminal watcher configured", "shell", cfg.Perception.Terminal.Shell)
-			}
-		}
-
-		if cfg.Perception.Clipboard.Enabled {
-			cw, err := clipwatcher.NewClipboardWatcher(clipwatcher.Config{
-				PollIntervalSec: cfg.Perception.Clipboard.PollIntervalSec,
-				MaxContentBytes: cfg.Perception.Clipboard.MaxContentBytes,
-			}, log)
-			if err != nil {
-				log.Error("failed to create clipboard watcher", "error", err)
-			} else {
-				watchers = append(watchers, cw)
-				log.Info("clipboard watcher configured")
-			}
-		}
-
-		if cfg.Perception.Git.Enabled {
-			gw, err := gitwatcher.NewGitWatcher(gitwatcher.Config{
-				WatchDirs:       cfg.Perception.Filesystem.WatchDirs,
-				PollIntervalSec: cfg.Perception.Git.PollIntervalSec,
-				MaxRepoDepth:    cfg.Perception.Git.MaxRepoDepth,
-			}, log)
-			if err != nil {
-				log.Warn("git watcher not available", "error", err)
-			} else {
-				watchers = append(watchers, gw)
-				log.Info("git watcher configured")
-			}
-		}
-
-		// --- Start perception agent ---
-		if len(watchers) > 0 {
-			percAgent = perception.NewPerceptionAgent(
-				watchers,
-				memStore,
-				perception.PerceptionConfig{
-					HeuristicConfig: perception.HeuristicConfig{
-						MinContentLength:        cfg.Perception.Heuristics.MinContentLength,
-						MaxContentLength:        cfg.Perception.Heuristics.MaxContentLength,
-						FrequencyThreshold:      cfg.Perception.Heuristics.FrequencyThreshold,
-						FrequencyWindowMin:      cfg.Perception.Heuristics.FrequencyWindowMin,
-						PassScore:               float32(cfg.Perception.HeuristicPassScore),
-						BatchEditWindowSec:      cfg.Perception.BatchEditWindowSec,
-						BatchEditThreshold:      cfg.Perception.BatchEditThreshold,
-						RecallBoostMax:          float32(cfg.Perception.RecallBoostMax),
-						RecallBoostMinutes:      cfg.Perception.RecallBoostWindowMin,
-						ExtraIgnoredPatterns:    cfg.Perception.Heuristics.ExtraIgnoredPatterns,
-						ExtraLockfileNames:      cfg.Perception.Heuristics.ExtraLockfileNames,
-						ExtraAppInternalDirs:    cfg.Perception.Heuristics.ExtraAppInternalDirs,
-						ExtraSensitiveNames:     cfg.Perception.Heuristics.ExtraSensitiveNames,
-						ExtraSourceExtensions:   cfg.Perception.Heuristics.ExtraSourceExtensions,
-						ExtraTrivialCommands:    cfg.Perception.Heuristics.ExtraTrivialCommands,
-						ExtraHighSignalCommands: cfg.Perception.Heuristics.ExtraHighSignalCommands,
-						ExtraCodeIndicators:     cfg.Perception.Heuristics.ExtraCodeIndicators,
-						ExtraHighSignalKeywords: cfg.Perception.Heuristics.ExtraHighSignalKeywords,
-						ExtraMediumKeywords:     cfg.Perception.Heuristics.ExtraMediumKeywords,
-						ExtraLowKeywords:        cfg.Perception.Heuristics.ExtraLowKeywords,
-						Scoring: perception.ScoringConfig{
-							BaseFilesystem:   cfg.Perception.Scoring.BaseFilesystem,
-							BaseTerminal:     cfg.Perception.Scoring.BaseTerminal,
-							BaseClipboard:    cfg.Perception.Scoring.BaseClipboard,
-							BaseMCP:          cfg.Perception.Scoring.BaseMCP,
-							BoostErrorLog:    cfg.Perception.Scoring.BoostErrorLog,
-							BoostConfig:      cfg.Perception.Scoring.BoostConfig,
-							BoostSourceCode:  cfg.Perception.Scoring.BoostSourceCode,
-							BoostCommand:     cfg.Perception.Scoring.BoostCommand,
-							BoostCodeSnippet: cfg.Perception.Scoring.BoostCodeSnippet,
-							KeywordHigh:      cfg.Perception.Scoring.KeywordHigh,
-							KeywordMedium:    cfg.Perception.Scoring.KeywordMedium,
-							KeywordLow:       cfg.Perception.Scoring.KeywordLow,
-						},
-					},
-					LLMGatingEnabled:      cfg.Perception.LLMGatingEnabled,
-					LearnedExclusionsPath: cfg.Perception.LearnedExclusionsPath,
-					ProjectResolver:       projectResolver,
-					ContentDedupTTLSec:    cfg.Perception.ContentDedupTTLSec,
-					GitOpCooldownSec:      cfg.Perception.GitOpCooldownSec,
-					MaxRawContentLen:      cfg.Perception.MaxRawContentLen,
-					LLMGateSnippetLen:     cfg.Perception.LLMGateSnippetLen,
-					LLMGateTimeoutSec:     cfg.Perception.LLMGateTimeoutSec,
-					RejectionThreshold:    cfg.Perception.RejectionThreshold,
-					RejectionWindowMin:    cfg.Perception.RejectionWindowMin,
-					RejectionMaxPromoted:  cfg.Perception.RejectionMaxPromoted,
-				},
-				log,
-			)
-			if err := percAgent.Start(rootCtx, bus); err != nil {
-				log.Error("failed to start perception agent", "error", err)
-			} else {
-				log.Info("perception agent started", "watchers", len(watchers))
-			}
 		}
 	}
 
@@ -714,10 +568,6 @@ func serveCommand(configPath string) {
 	if episodingAgent != nil {
 		_ = episodingAgent.Stop()
 	}
-	if percAgent != nil {
-		_ = percAgent.Stop()
-	}
-
 	if err := bus.Close(); err != nil {
 		log.Error("error closing event bus", "error", err)
 	}

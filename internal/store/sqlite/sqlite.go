@@ -13,7 +13,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/appsprout-dev/mnemonic/internal/llm"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 	store "github.com/appsprout-dev/mnemonic/internal/store"
 )
 
@@ -2396,7 +2396,7 @@ func (s *SQLiteStore) GetSourceDistribution(ctx context.Context) (map[string]int
 }
 
 // RecordLLMUsage inserts an LLM usage record.
-func (s *SQLiteStore) RecordLLMUsage(ctx context.Context, record llm.LLMUsageRecord) error {
+func (s *SQLiteStore) RecordLLMUsage(ctx context.Context, record usage.Record) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO llm_usage (timestamp, operation, caller, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, success, error_message)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -2480,7 +2480,7 @@ func (s *SQLiteStore) GetLLMUsageSummary(ctx context.Context, since time.Time) (
 }
 
 // GetLLMUsageLog returns the most recent LLM usage records within the given time range.
-func (s *SQLiteStore) GetLLMUsageLog(ctx context.Context, since time.Time, limit int) ([]llm.LLMUsageRecord, error) {
+func (s *SQLiteStore) GetLLMUsageLog(ctx context.Context, since time.Time, limit int) ([]usage.Record, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -2494,9 +2494,9 @@ func (s *SQLiteStore) GetLLMUsageLog(ctx context.Context, since time.Time, limit
 	}
 	defer func() { _ = rows.Close() }()
 
-	var records []llm.LLMUsageRecord
+	var records []usage.Record
 	for rows.Next() {
-		var r llm.LLMUsageRecord
+		var r usage.Record
 		var ts string
 		if err := rows.Scan(&ts, &r.Operation, &r.Caller, &r.Model,
 			&r.PromptTokens, &r.CompletionTokens, &r.TotalTokens,

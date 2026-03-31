@@ -7,7 +7,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/llm"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 )
 
@@ -305,11 +305,11 @@ func (MockStore) GetStatistics(context.Context) (store.StoreStatistics, error) {
 
 // --- LLM usage tracking ---
 
-func (MockStore) RecordLLMUsage(context.Context, llm.LLMUsageRecord) error { return nil }
+func (MockStore) RecordLLMUsage(context.Context, usage.Record) error { return nil }
 func (MockStore) GetLLMUsageSummary(context.Context, time.Time) (store.LLMUsageSummary, error) {
 	return store.LLMUsageSummary{}, nil
 }
-func (MockStore) GetLLMUsageLog(context.Context, time.Time, int) ([]llm.LLMUsageRecord, error) {
+func (MockStore) GetLLMUsageLog(context.Context, time.Time, int) ([]usage.Record, error) {
 	return nil, nil
 }
 func (MockStore) GetLLMUsageChart(context.Context, time.Time, int) ([]store.LLMChartBucket, error) {

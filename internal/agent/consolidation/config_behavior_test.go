@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/llm"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 )
 
@@ -306,20 +305,15 @@ func TestConfigMaxMergesPerCycleLimitsMerges(t *testing.T) {
 				return nil, nil
 			}
 
-			llmProv := newMockLLMProvider()
-			llmProv.completeFn = func(_ context.Context, _ llm.CompletionRequest) (llm.CompletionResponse, error) {
-				return llm.CompletionResponse{
-					Content: `{"summary": "merged gist", "concepts": ["test"], "salience": 0.9}`,
-				}, nil
-			}
-			llmProv.embedFn = func(_ context.Context, _ string) ([]float32, error) {
+			embProv := newMockEmbeddingProvider()
+			embProv.embedFn = func(_ context.Context, _ string) ([]float32, error) {
 				return emb, nil
 			}
 
 			cfg := DefaultConfig()
 			cfg.MaxMergesPerCycle = tc.maxMerges
 			cfg.MinClusterSize = 3
-			agent := NewConsolidationAgent(s, llmProv, cfg, testLogger())
+			agent := NewConsolidationAgent(s, embProv, cfg, testLogger())
 
 			merges, err := agent.mergeClusters(context.Background())
 			if err != nil {
@@ -361,19 +355,14 @@ func TestConfigMinClusterSizeFiltersMerge(t *testing.T) {
 				return nil, nil
 			}
 
-			llmProv := newMockLLMProvider()
-			llmProv.completeFn = func(_ context.Context, _ llm.CompletionRequest) (llm.CompletionResponse, error) {
-				return llm.CompletionResponse{
-					Content: `{"summary": "merged", "concepts": ["test"], "salience": 0.9}`,
-				}, nil
-			}
-			llmProv.embedFn = func(_ context.Context, _ string) ([]float32, error) {
+			embProv := newMockEmbeddingProvider()
+			embProv.embedFn = func(_ context.Context, _ string) ([]float32, error) {
 				return emb, nil
 			}
 
 			cfg := DefaultConfig()
 			cfg.MinClusterSize = tc.minClusterSize
-			agent := NewConsolidationAgent(s, llmProv, cfg, testLogger())
+			agent := NewConsolidationAgent(s, embProv, cfg, testLogger())
 
 			merges, err := agent.mergeClusters(context.Background())
 			if err != nil {

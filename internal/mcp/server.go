@@ -239,6 +239,18 @@ func (srv *MCPServer) handleRequest(ctx context.Context, req *jsonRPCRequest) *j
 }
 
 // handleInitialize returns the MCP initialization response.
+// serverInstructions returns guidance injected into the agent's context each turn.
+// Keep concise — this competes for context window space.
+const serverInstructions = `Mnemonic is your long-term semantic memory. Use it to persist decisions, errors, insights, and learnings across sessions.
+
+Session start: call recall_project, then recall with task-relevant keywords.
+During work: call remember for decisions, errors, insights worth preserving.
+After recalls: call feedback (helpful/partial/irrelevant) to train retrieval.
+Session end: remember any unstored decisions or insights.
+
+Memory types: decision, error, insight, learning, general. Always set the type.
+Memories are project-scoped and session-tagged automatically.`
+
 func (srv *MCPServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 	result := map[string]interface{}{
 		"protocolVersion": "2024-11-05",
@@ -249,8 +261,17 @@ func (srv *MCPServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 			"name":    "mnemonic",
 			"version": srv.version,
 		},
+		"instructions": serverInstructions,
 	}
 	return successResponse(req.ID, result)
+}
+
+// ToolAnnotations describes MCP tool behavior hints for clients.
+type ToolAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
 }
 
 // ToolDefinition describes an MCP tool.
@@ -258,7 +279,12 @@ type ToolDefinition struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	InputSchema map[string]interface{} `json:"inputSchema"`
+	Annotations *ToolAnnotations       `json:"annotations,omitempty"`
+	Meta        map[string]interface{} `json:"_meta,omitempty"`
 }
+
+// boolPtr returns a pointer to a bool value.
+func boolPtr(b bool) *bool { return &b }
 
 // handleToolsList returns the list of available tools.
 func (srv *MCPServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
@@ -521,8 +547,8 @@ func (srv *MCPServer) handleRemember(ctx context.Context, args map[string]interf
 
 	srv.log.Info("memory stored", "id", raw.ID, "source", source, "type", memType, "project", project)
 
-	msg := fmt.Sprintf("Stored memory %s (type: %s, project: %s)\n  Raw ID: %s\n  Initial salience: %.2f\n  Encoding: queued (async)\n\nTip: Use check_memory with raw_id %q to verify encoding status. Dedup protections: same-type, same-project, source-aware thresholds.",
-		raw.ID, memType, project, raw.ID, raw.InitialSalience, raw.ID)
+	msg := fmt.Sprintf("Stored memory %s (type: %s, project: %s)\n  Initial salience: %.2f\n  Encoding: queued (async)\n\nUse this ID with recall (id: %q) or feedback (memory_ids) to reference this memory.",
+		raw.ID, memType, project, raw.InitialSalience, raw.ID)
 	if len(invalidAssocIDs) > 0 {
 		msg += fmt.Sprintf("\n\nWarning: %d association target(s) not found and skipped: %s",
 			len(invalidAssocIDs), strings.Join(invalidAssocIDs, ", "))
@@ -560,15 +586,19 @@ func (srv *MCPServer) syncActivityFromDaemon() {
 	}
 }
 
-// handleRecall retrieves memories using semantic search and spread activation.
-// All recall paths (project-scoped, concept-filtered, default) go through the
-// retrieval agent for spread activation and synthesis.
+// handleRecall retrieves memories using semantic search and spread activation,
+// or does direct lookup by ID.
 func (srv *MCPServer) handleRecall(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	srv.syncActivityFromDaemon()
 
+	// Direct ID lookup — bypass search entirely
+	if id, ok := args["id"].(string); ok && id != "" {
+		return srv.handleRecallByID(ctx, id)
+	}
+
 	query, ok := args["query"].(string)
 	if !ok || query == "" {
-		return nil, fmt.Errorf("query parameter is required and must be a string")
+		return nil, fmt.Errorf("query or id parameter is required")
 	}
 
 	limit := 5
@@ -793,9 +823,13 @@ func (srv *MCPServer) handleRecall(ctx context.Context, args map[string]interfac
 				}
 			}
 		}
-		text += fmt.Sprintf("%d. [%.3f] %s\n   Summary: %s%s\n   Concepts: %v\n   Created: %s%s%s%s\n\n",
+		rawInfo := ""
+		if mem.Memory.RawID != "" && mem.Memory.RawID != mem.Memory.ID {
+			rawInfo = fmt.Sprintf("\n   Raw ID: %s", mem.Memory.RawID)
+		}
+		text += fmt.Sprintf("%d. [%.3f] %s\n   Summary: %s%s\n   Concepts: %v\n   Created: %s%s%s%s%s\n\n",
 			i+1, mem.Score, mem.Memory.ID, mem.Memory.Summary, contentSnippet,
-			mem.Memory.Concepts, mem.Memory.CreatedAt.Format("2006-01-02 15:04"), projectInfo, explanationInfo, associationInfo)
+			mem.Memory.Concepts, mem.Memory.CreatedAt.Format("2006-01-02 15:04"), projectInfo, rawInfo, explanationInfo, associationInfo)
 	}
 
 	if result.Synthesis != "" {
@@ -842,6 +876,54 @@ func (srv *MCPServer) handleRecall(ctx context.Context, args map[string]interfac
 	}
 
 	return toolResult(text), nil
+}
+
+// handleRecallByID does direct memory lookup by ID.
+// Tries encoded memory ID first, then raw memory ID.
+func (srv *MCPServer) handleRecallByID(ctx context.Context, id string) (interface{}, error) {
+	// Try as encoded memory ID
+	mem, err := srv.store.GetMemory(ctx, id)
+	if err == nil {
+		return toolResult(formatSingleMemory(mem)), nil
+	}
+
+	// Try as raw memory ID → look up encoded memory
+	mem, err = srv.store.GetMemoryByRawID(ctx, id)
+	if err == nil {
+		return toolResult(formatSingleMemory(mem)), nil
+	}
+
+	// Check if raw memory exists but hasn't been encoded yet
+	raw, rawErr := srv.store.GetRaw(ctx, id)
+	if rawErr == nil {
+		text := fmt.Sprintf("Memory %s exists but is still encoding.\n", id)
+		text += fmt.Sprintf("  Source: %s\n  Type: %s\n  Created: %s\n  Content: %s\n",
+			raw.Source, raw.Type, raw.CreatedAt.Format("2006-01-02 15:04"), raw.Content)
+		return toolResult(text), nil
+	}
+
+	return nil, fmt.Errorf("memory not found: %s", id)
+}
+
+// formatSingleMemory formats a single memory for text output.
+func formatSingleMemory(mem store.Memory) string {
+	text := fmt.Sprintf("Memory %s", mem.ID)
+	if mem.RawID != "" && mem.RawID != mem.ID {
+		text += fmt.Sprintf(" (raw: %s)", mem.RawID)
+	}
+	text += "\n"
+	text += fmt.Sprintf("  Summary: %s\n", mem.Summary)
+	if mem.Content != "" && mem.Content != mem.Summary {
+		text += fmt.Sprintf("  Content: %s\n", mem.Content)
+	}
+	text += fmt.Sprintf("  Type: %s\n", mem.Type)
+	text += fmt.Sprintf("  Project: %s\n", mem.Project)
+	text += fmt.Sprintf("  Salience: %.2f\n", mem.Salience)
+	text += fmt.Sprintf("  State: %s\n", mem.State)
+	text += fmt.Sprintf("  Concepts: %v\n", mem.Concepts)
+	text += fmt.Sprintf("  Created: %s\n", mem.CreatedAt.Format("2006-01-02 15:04"))
+	text += fmt.Sprintf("  Accessed: %d times\n", mem.AccessCount)
+	return text
 }
 
 // formatRecallJSON builds a structured map from retrieval results.

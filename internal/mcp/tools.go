@@ -6,7 +6,7 @@ package mcp
 func rememberToolDef() ToolDefinition {
 	return ToolDefinition{
 		Name:        "remember",
-		Description: "Store a memory in the Mnemonic memory system. Memories are automatically tagged with the current project and session. Use this to record decisions, errors, insights, or anything worth remembering.",
+		Description: "Store a memory. Auto-tagged with project and session. Set type: decision, error, insight, learning, or general.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -14,28 +14,24 @@ func rememberToolDef() ToolDefinition {
 					"type":        "string",
 					"description": "The memory content to store",
 				},
-				"source": map[string]interface{}{
-					"type":        "string",
-					"description": "The source of the memory (default: mcp)",
-				},
 				"type": map[string]interface{}{
 					"type":        "string",
-					"description": "Memory type: decision, error, insight, learning, or general (default: general)",
+					"description": "Memory type",
 					"enum":        []string{"decision", "error", "insight", "learning", "general"},
 				},
 				"project": map[string]interface{}{
 					"type":        "string",
-					"description": "Project name (auto-detected from working directory if omitted)",
+					"description": "Project name (auto-detected if omitted)",
 				},
 				"associate_with": map[string]interface{}{
 					"type":        "array",
-					"description": "Create explicit associations with existing memories at write time",
+					"description": "Link to existing memories",
 					"items": map[string]interface{}{
 						"type": "object",
 						"properties": map[string]interface{}{
 							"memory_id": map[string]interface{}{
 								"type":        "string",
-								"description": "ID of the memory to associate with",
+								"description": "Memory ID to associate with",
 							},
 							"relation": map[string]interface{}{
 								"type":        "string",
@@ -49,88 +45,86 @@ func rememberToolDef() ToolDefinition {
 			},
 			"required": []string{"text"},
 		},
+		Annotations: &ToolAnnotations{
+			Title:           "Remember",
+			ReadOnlyHint:    boolPtr(false),
+			DestructiveHint: boolPtr(false),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/alwaysLoad": true,
+			"anthropic/searchHint": "store save persist memory decision error insight learning",
+		},
 	}
 }
 
 func recallToolDef() ToolDefinition {
 	return ToolDefinition{
 		Name:        "recall",
-		Description: "Retrieve relevant memories using semantic search and spread activation. Supports project scoping, time ranges, and concept filtering. Returns synthesized results by default.",
+		Description: "Semantic search over memories, or direct lookup by ID. Returns ranked results with scores.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"query": map[string]interface{}{
 					"type":        "string",
-					"description": "The query to search for",
+					"description": "The search query (required unless id is set)",
+				},
+				"id": map[string]interface{}{
+					"type":        "string",
+					"description": "Direct lookup by memory ID or raw ID (skips search)",
 				},
 				"limit": map[string]interface{}{
 					"type":        "integer",
-					"description": "Maximum number of memories to return (default: 5)",
+					"description": "Max results (default: 5)",
 				},
 				"project": map[string]interface{}{
 					"type":        "string",
-					"description": "Filter by project name",
-				},
-				"concepts": map[string]interface{}{
-					"type":        "array",
-					"items":       map[string]interface{}{"type": "string"},
-					"description": "Filter by specific concepts",
-				},
-				"exclude_concepts": map[string]interface{}{
-					"type":        "array",
-					"items":       map[string]interface{}{"type": "string"},
-					"description": "Exclude memories containing any of these concepts",
-				},
-				"source": map[string]interface{}{
-					"type":        "string",
-					"description": "Filter by memory source: mcp, filesystem, terminal, clipboard",
+					"description": "Filter by project",
 				},
 				"type": map[string]interface{}{
 					"type":        "string",
-					"description": "Filter by memory type: decision, error, insight, learning, general",
+					"description": "Filter by type",
 					"enum":        []string{"decision", "error", "insight", "learning", "general"},
-				},
-				"min_salience": map[string]interface{}{
-					"type":        "number",
-					"description": "Minimum salience threshold (0.0-1.0). Filters out low-quality memories.",
-				},
-				"state": map[string]interface{}{
-					"type":        "string",
-					"description": "Filter by memory state: active, fading, archived",
-					"enum":        []string{"active", "fading", "archived"},
-				},
-				"explain": map[string]interface{}{
-					"type":        "boolean",
-					"description": "If true, include score breakdown for each result (activation, recency, source weight, feedback adjustment)",
-				},
-				"include_associations": map[string]interface{}{
-					"type":        "boolean",
-					"description": "If true, include top associated memories for each result (default: false)",
-				},
-				"synthesize": map[string]interface{}{
-					"type":        "boolean",
-					"description": "If true, include LLM-generated synthesis narrative (default: false). Adds 3-8s latency.",
 				},
 				"types": map[string]interface{}{
 					"type":        "array",
 					"items":       map[string]interface{}{"type": "string"},
-					"description": "Filter by multiple memory types at once (e.g. [\"decision\", \"error\"]). Overrides 'type' if both are set.",
+					"description": "Filter by multiple types (overrides type)",
+				},
+				"min_salience": map[string]interface{}{
+					"type":        "number",
+					"description": "Min salience threshold (0.0-1.0)",
+				},
+				"explain": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Include score breakdown per result",
+				},
+				"include_associations": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Include associated memories (default: false)",
 				},
 				"include_patterns": map[string]interface{}{
 					"type":        "boolean",
-					"description": "If true, include matching patterns in results (default: true). Set to false to reduce output noise.",
+					"description": "Include matching patterns (default: true)",
 				},
 				"include_abstractions": map[string]interface{}{
 					"type":        "boolean",
-					"description": "If true, include matching principles/axioms in results (default: true). Set to false to reduce output noise.",
+					"description": "Include matching principles (default: true)",
 				},
 				"format": map[string]interface{}{
 					"type":        "string",
-					"description": "Output format: text (default) or json (structured data)",
+					"description": "Output format: text or json",
 					"enum":        []string{"text", "json"},
 				},
 			},
-			"required": []string{"query"},
+			"required": []string{},
+		},
+		Annotations: &ToolAnnotations{
+			Title:        "Recall",
+			ReadOnlyHint: boolPtr(true),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/alwaysLoad": true,
+			"anthropic/searchHint": "search find retrieve query memories semantic recall remember lookup id",
 		},
 	}
 }
@@ -138,13 +132,13 @@ func recallToolDef() ToolDefinition {
 func batchRecallToolDef() ToolDefinition {
 	return ToolDefinition{
 		Name:        "batch_recall",
-		Description: "Run multiple recall queries in a single request. Returns structured JSON results for each query. Ideal for session start when you need project context, prior decisions, and task-specific memories in one round-trip.",
+		Description: "Run multiple recall queries in one request. Ideal for session start.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"queries": map[string]interface{}{
 					"type":        "array",
-					"description": "Array of recall queries to execute",
+					"description": "Array of recall queries",
 					"items": map[string]interface{}{
 						"type": "object",
 						"properties": map[string]interface{}{
@@ -154,23 +148,19 @@ func batchRecallToolDef() ToolDefinition {
 							},
 							"limit": map[string]interface{}{
 								"type":        "integer",
-								"description": "Maximum results for this query (default: 5)",
+								"description": "Max results (default: 5)",
 							},
 							"project": map[string]interface{}{
 								"type":        "string",
-								"description": "Filter by project name",
-							},
-							"source": map[string]interface{}{
-								"type":        "string",
-								"description": "Filter by memory source: mcp, filesystem, terminal, clipboard",
+								"description": "Filter by project",
 							},
 							"type": map[string]interface{}{
 								"type":        "string",
-								"description": "Filter by memory type: decision, error, insight, learning, general",
+								"description": "Filter by memory type",
 							},
 							"min_salience": map[string]interface{}{
 								"type":        "number",
-								"description": "Minimum salience threshold (0.0-1.0)",
+								"description": "Min salience (0.0-1.0)",
 							},
 						},
 						"required": []string{"query"},
@@ -178,6 +168,14 @@ func batchRecallToolDef() ToolDefinition {
 				},
 			},
 			"required": []string{"queries"},
+		},
+		Annotations: &ToolAnnotations{
+			Title:        "Batch Recall",
+			ReadOnlyHint: boolPtr(true),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/alwaysLoad": true,
+			"anthropic/searchHint": "batch multi-query parallel recall session start memories",
 		},
 	}
 }
@@ -266,11 +264,18 @@ func dismissAbstractionToolDef() ToolDefinition {
 func statusToolDef() ToolDefinition {
 	return ToolDefinition{
 		Name:        "status",
-		Description: "Get memory system statistics, health insights, and project breakdown",
+		Description: "Memory system health: stats, encoding pipeline, project breakdown.",
 		InputSchema: map[string]interface{}{
 			"type":       "object",
 			"properties": map[string]interface{}{},
 			"required":   []string{},
+		},
+		Annotations: &ToolAnnotations{
+			Title:        "Status",
+			ReadOnlyHint: boolPtr(true),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/searchHint": "health stats status memory system diagnostics",
 		},
 	}
 }
@@ -278,42 +283,41 @@ func statusToolDef() ToolDefinition {
 func recallProjectToolDef() ToolDefinition {
 	return ToolDefinition{
 		Name:        "recall_project",
-		Description: "Retrieve project-scoped memories with an activity summary. Shows recent memories, patterns, and key decisions for a specific project.",
+		Description: "Get project context: recent memories, patterns, and key decisions. Call at session start.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
 				"project": map[string]interface{}{
 					"type":        "string",
-					"description": "Project name (uses current project if omitted)",
+					"description": "Project name (auto-detected if omitted)",
 				},
 				"query": map[string]interface{}{
 					"type":        "string",
-					"description": "Optional search query within the project",
+					"description": "Optional search query within project",
 				},
 				"limit": map[string]interface{}{
 					"type":        "integer",
-					"description": "Maximum number of memories to return (default: 10)",
-				},
-				"source": map[string]interface{}{
-					"type":        "string",
-					"description": "Filter by memory source: mcp, filesystem, terminal, clipboard",
+					"description": "Max memories to return (default: 10)",
 				},
 				"min_salience": map[string]interface{}{
 					"type":        "number",
-					"description": "Minimum salience threshold (0.0-1.0). Filters out low-quality memories.",
-				},
-				"state": map[string]interface{}{
-					"type":        "string",
-					"description": "Filter by memory state: active, fading, archived",
-					"enum":        []string{"active", "fading", "archived"},
+					"description": "Min salience threshold (0.0-1.0)",
 				},
 				"format": map[string]interface{}{
 					"type":        "string",
-					"description": "Output format: text (default) or json (structured data)",
+					"description": "Output format: text or json",
 					"enum":        []string{"text", "json"},
 				},
 			},
 			"required": []string{},
+		},
+		Annotations: &ToolAnnotations{
+			Title:        "Recall Project",
+			ReadOnlyHint: boolPtr(true),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/alwaysLoad": true,
+			"anthropic/searchHint": "project context session start overview decisions patterns",
 		},
 	}
 }
@@ -419,7 +423,7 @@ func getInsightsToolDef() ToolDefinition {
 func feedbackToolDef() ToolDefinition {
 	return ToolDefinition{
 		Name:        "feedback",
-		Description: "Report the quality of a recall result. Include the query_id from the recall response to enable association strength tuning. Helps the memory system learn which memories and associations are useful.",
+		Description: "Rate recall quality. Trains retrieval ranking and association strength.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -429,20 +433,29 @@ func feedbackToolDef() ToolDefinition {
 				},
 				"quality": map[string]interface{}{
 					"type":        "string",
-					"description": "Quality rating: helpful, partial, or irrelevant",
+					"description": "helpful, partial, or irrelevant",
 					"enum":        []string{"helpful", "partial", "irrelevant"},
 				},
 				"memory_ids": map[string]interface{}{
 					"type":        "array",
 					"items":       map[string]interface{}{"type": "string"},
-					"description": "IDs of the memories that were returned",
+					"description": "IDs of returned memories",
 				},
 				"query_id": map[string]interface{}{
 					"type":        "string",
-					"description": "The query_id returned by the recall tool — enables association strength tuning based on feedback",
+					"description": "query_id from recall response (enables association tuning)",
 				},
 			},
 			"required": []string{"query", "quality"},
+		},
+		Annotations: &ToolAnnotations{
+			Title:           "Feedback",
+			ReadOnlyHint:    boolPtr(false),
+			DestructiveHint: boolPtr(false),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/alwaysLoad": true,
+			"anthropic/searchHint": "rate feedback quality recall helpful partial irrelevant",
 		},
 	}
 }
@@ -591,7 +604,7 @@ func listExclusionsToolDef() ToolDefinition {
 func amendToolDef() ToolDefinition {
 	return ToolDefinition{
 		Name:        "amend",
-		Description: "Update a memory's content while preserving its ID, associations, activation history, and salience. Use when a recalled memory is stale or incorrect. Records an audit trail of the change.",
+		Description: "Update a memory's content in place. Preserves ID, associations, and history.",
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
@@ -605,6 +618,14 @@ func amendToolDef() ToolDefinition {
 				},
 			},
 			"required": []string{"memory_id", "corrected_content"},
+		},
+		Annotations: &ToolAnnotations{
+			Title:           "Amend",
+			ReadOnlyHint:    boolPtr(false),
+			DestructiveHint: boolPtr(false),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/searchHint": "update correct fix amend edit memory stale",
 		},
 	}
 }

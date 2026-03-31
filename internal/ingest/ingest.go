@@ -14,7 +14,7 @@ import (
 	"github.com/appsprout-dev/mnemonic/internal/events"
 	"github.com/appsprout-dev/mnemonic/internal/ingest/extract"
 	"github.com/appsprout-dev/mnemonic/internal/store"
-	"github.com/appsprout-dev/mnemonic/internal/watcher/filesystem"
+	"github.com/appsprout-dev/mnemonic/internal/fsutil"
 )
 
 const batchSize = 50
@@ -91,7 +91,7 @@ func Run(ctx context.Context, cfg Config, s store.Store, bus events.Bus, log *sl
 			return nil
 		}
 		if info.IsDir() {
-			if filesystem.MatchesExcludePattern(path, cfg.ExcludePatterns) {
+			if fsutil.MatchesExcludePattern(path, cfg.ExcludePatterns) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -102,16 +102,16 @@ func Run(ctx context.Context, cfg Config, s store.Store, bus events.Bus, log *sl
 		}
 		// Allow extractable binary files through; skip the rest
 		ext := strings.ToLower(filepath.Ext(path))
-		if filesystem.IsBinaryFile(path) && !registry.HasExtractor(ext) {
+		if fsutil.IsBinaryFile(path) && !registry.HasExtractor(ext) {
 			excluded++
 			return nil
 		}
-		if len(cfg.SensitivePatterns) > 0 && filesystem.IsSensitiveFile(path, cfg.SensitivePatterns) {
+		if len(cfg.SensitivePatterns) > 0 && fsutil.IsSensitiveFile(path, cfg.SensitivePatterns) {
 			log.Warn("skipping sensitive file", "path", path)
 			excluded++
 			return nil
 		}
-		if filesystem.MatchesExcludePattern(path, cfg.ExcludePatterns) {
+		if fsutil.MatchesExcludePattern(path, cfg.ExcludePatterns) {
 			excluded++
 			return nil
 		}
@@ -182,7 +182,7 @@ func Run(ctx context.Context, cfg Config, s store.Store, bus events.Bus, log *sl
 			}
 		} else {
 			// Plain text path (unchanged)
-			content := filesystem.ReadFileContent(path, cfg.MaxContentBytes, log)
+			content := fsutil.ReadFileContent(path, cfg.MaxContentBytes, log)
 			if content == "" {
 				result.FilesSkipped++
 				if cfg.OnProgress != nil {
@@ -190,7 +190,7 @@ func Run(ctx context.Context, cfg Config, s store.Store, bus events.Bus, log *sl
 				}
 				continue
 			}
-			if filesystem.IsBinaryContent(content) {
+			if fsutil.IsBinaryContent(content) {
 				result.FilesSkipped++
 				if cfg.OnProgress != nil {
 					cfg.OnProgress(i+1, len(files), relPath)

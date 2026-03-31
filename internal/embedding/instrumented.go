@@ -5,13 +5,13 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/llm"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 )
 
 // InstrumentedProvider wraps an embedding.Provider to capture usage metrics.
 type InstrumentedProvider struct {
 	inner    Provider
-	recorder llm.UsageRecorder
+	recorder usage.Recorder
 	caller   string
 	model    string
 }
@@ -19,7 +19,7 @@ type InstrumentedProvider struct {
 // NewInstrumentedProvider wraps inner with usage tracking.
 // caller identifies the agent (e.g., "encoding", "retrieval").
 // model is the default model name for logging.
-func NewInstrumentedProvider(inner Provider, recorder llm.UsageRecorder, caller, model string) *InstrumentedProvider {
+func NewInstrumentedProvider(inner Provider, recorder usage.Recorder, caller, model string) *InstrumentedProvider {
 	return &InstrumentedProvider{
 		inner:    inner,
 		recorder: recorder,
@@ -28,7 +28,7 @@ func NewInstrumentedProvider(inner Provider, recorder llm.UsageRecorder, caller,
 	}
 }
 
-func (p *InstrumentedProvider) record(ctx context.Context, rec llm.LLMUsageRecord) {
+func (p *InstrumentedProvider) record(ctx context.Context, rec usage.Record) {
 	if err := p.recorder.RecordLLMUsage(ctx, rec); err != nil {
 		slog.Warn("failed to record embedding usage", "error", err, "caller", rec.Caller)
 	}
@@ -45,7 +45,7 @@ func (p *InstrumentedProvider) Embed(ctx context.Context, text string) ([]float3
 		estTokens = 1
 	}
 
-	rec := llm.LLMUsageRecord{
+	rec := usage.Record{
 		Timestamp:    start,
 		Operation:    "embed",
 		Caller:       p.caller,
@@ -81,7 +81,7 @@ func (p *InstrumentedProvider) BatchEmbed(ctx context.Context, texts []string) (
 		estTokens = 1
 	}
 
-	rec := llm.LLMUsageRecord{
+	rec := usage.Record{
 		Timestamp:    start,
 		Operation:    "batch_embed",
 		Caller:       p.caller,

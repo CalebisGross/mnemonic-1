@@ -1,0 +1,157 @@
+# Test config for spoke model evaluation
+# Run with: ./bin/mnemonic --config config-test-spokes.yaml serve
+
+projects:
+  - name: "test"
+    paths:
+      - "~/Projects/mem"
+
+llm:
+  provider: "api"
+  endpoint: "http://localhost:5555/v1"
+  chat_model: "qwen-spokes-exp14_deduped"
+
+  # Embeddings still go to Gemini (spokes model doesn't do embeddings)
+  embedding_model: "gemini-embedding-2-preview"
+
+  max_tokens: 1024
+  temperature: 0.0
+  timeout_sec: 120
+  max_concurrent: 1
+
+store:
+  db_path: "/tmp/mnemonic-test-spokes.db"
+  journal_mode: "wal"
+
+memory:
+  max_working_memory: 12
+
+perception:
+  enabled: true
+  llm_gating_enabled: false
+  filesystem:
+    enabled: true
+    watch_dirs:
+      - "~/Projects"
+    exclude_patterns:
+      - ".git/"
+      - "node_modules/"
+      - "__pycache__/"
+      - ".venv/"
+      - "venv/"
+      - ".cache/"
+      - ".DS_Store"
+      - "wandb/"
+      - ".mnemonic/"
+      - ".claude/"
+      - ".vscode/"
+      - ".config/"
+      - ".local/"
+      - "/snap/"
+      - "checkpoints/"
+    max_content_bytes: 524288
+    max_watches: 20000
+    shallow_depth: 5
+    poll_interval_sec: 45
+    promotion_threshold: 3
+    demotion_timeout_min: 30
+  git:
+    enabled: true
+    poll_interval_sec: 45
+    max_repo_depth: 3
+  terminal:
+    enabled: true
+    shell: "auto"
+    poll_interval_sec: 10
+    exclude_patterns:
+      - "^cd "
+      - "^ls "
+      - "^pwd$"
+  clipboard:
+    enabled: false
+  heuristics:
+    min_content_length: 10
+    max_content_length: 100000
+    frequency_threshold: 2
+    frequency_window_min: 15
+    heuristic_pass_score: 0.3
+
+encoding:
+  enabled: true
+  max_concepts: 8
+  find_similar_limit: 10
+  enable_contextual_encoding: false
+  max_concurrent_encodings: 1
+  enable_llm_classification: false
+  deduplication_threshold: 0.85
+  salience_floor: 0.0
+  completion_max_tokens: 1024
+  concept_vocabulary:
+    - go
+    - python
+    - database
+    - api
+    - performance
+    - debugging
+    - testing
+    - refactoring
+    - llm
+    - memory
+    - encoding
+    - retrieval
+
+consolidation:
+  enabled: false
+
+retrieval:
+  max_hops: 3
+  activation_threshold: 0.1
+  decay_factor: 0.7
+  max_results: 10
+  max_tool_calls: 8
+  synthesis_max_tokens: 2048
+  merge_alpha: 0.6
+  dual_hit_bonus: 0.15
+  feedback_weight: 0.15
+  source_weights:
+    mcp: 1.5
+
+metacognition:
+  enabled: false
+
+dreaming:
+  enabled: false
+
+episoding:
+  enabled: false
+
+abstraction:
+  enabled: false
+
+orchestrator:
+  enabled: false
+
+forum:
+  agent_posting: false
+  mention_responses: false
+
+mcp:
+  enabled: true
+
+agent_sdk:
+  enabled: false
+
+training:
+  capture_enabled: false
+
+api:
+  host: "127.0.0.1"
+  port: 9997
+
+web:
+  enabled: true
+
+logging:
+  level: "info"
+  format: "text"
+  file: "/tmp/mnemonic-test-spokes.log"

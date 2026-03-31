@@ -111,7 +111,7 @@ func dreamCycleCommand(configPath string) {
 
 // mcpCommand runs the MCP server on stdin/stdout for AI agent integration.
 func mcpCommand(configPath string) {
-	cfg, db, embProvider, log := initEmbeddingRuntime(configPath)
+	cfg, db, embProvider, log := initEmbeddingRuntimeMCP(configPath)
 	defer func() { _ = db.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -165,7 +165,7 @@ func mcpCommand(configPath string) {
 
 // autopilotCommand shows what the system has been doing autonomously.
 func autopilotCommand(configPath string) {
-	_, db, _, _ := initRuntime(configPath)
+	_, db, _ := initRuntime(configPath)
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()

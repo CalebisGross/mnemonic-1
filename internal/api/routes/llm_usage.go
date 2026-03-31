@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/llm"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 )
 
@@ -20,7 +20,7 @@ type LLMUsageResponse struct {
 
 // LLMUsageLogEntry extends a usage record with estimated cost.
 type LLMUsageLogEntry struct {
-	llm.LLMUsageRecord
+	usage.Record
 	EstimatedCostUSD float64 `json:"estimated_cost_usd"`
 }
 
@@ -83,21 +83,17 @@ func HandleLLMUsage(s store.Store, log *slog.Logger) http.HandlerFunc {
 			chartBuckets = nil
 		}
 
-		// Compute per-record cost and total cost
-		var totalCost float64
+		// Build log entries (cost estimation removed — local embeddings have no API cost)
 		logEntries := make([]LLMUsageLogEntry, len(records))
 		for i, rec := range records {
-			cost := llm.EstimateCost(rec.Model, rec.PromptTokens, rec.CompletionTokens, 0, 0)
-			totalCost += cost
 			logEntries[i] = LLMUsageLogEntry{
-				LLMUsageRecord:   rec,
-				EstimatedCostUSD: cost,
+				Record: rec,
 			}
 		}
 
 		resp := LLMUsageResponse{
 			Summary:          summary,
-			EstimatedCostUSD: totalCost,
+			EstimatedCostUSD: 0,
 			Log:              logEntries,
 			ChartBuckets:     chartBuckets,
 			Timestamp:        time.Now().UTC().Format(time.RFC3339),

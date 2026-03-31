@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/appsprout-dev/mnemonic/internal/events"
-	"github.com/appsprout-dev/mnemonic/internal/llm"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 	"github.com/appsprout-dev/mnemonic/internal/store/storetest"
 )
@@ -91,25 +90,19 @@ func (b *mockBus) Unsubscribe(subscriptionID string)                         {}
 func (b *mockBus) Close() error                                              { return nil }
 
 // ---------------------------------------------------------------------------
-// Mock LLM provider
+// Mock embedding provider
 // ---------------------------------------------------------------------------
 
-type mockLLMProvider struct{}
+type mockEmbeddingProvider struct{}
 
-func (p *mockLLMProvider) Complete(ctx context.Context, req llm.CompletionRequest) (llm.CompletionResponse, error) {
-	return llm.CompletionResponse{Content: "mock response"}, nil
-}
-func (p *mockLLMProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+func (p *mockEmbeddingProvider) Embed(_ context.Context, _ string) ([]float32, error) {
 	return []float32{0.1, 0.2, 0.3}, nil
 }
-func (p *mockLLMProvider) BatchEmbed(ctx context.Context, texts []string) ([][]float32, error) {
+func (p *mockEmbeddingProvider) BatchEmbed(_ context.Context, _ []string) ([][]float32, error) {
 	return nil, nil
 }
-func (p *mockLLMProvider) Health(ctx context.Context) error {
+func (p *mockEmbeddingProvider) Health(_ context.Context) error {
 	return nil
-}
-func (p *mockLLMProvider) ModelInfo(ctx context.Context) (llm.ModelMetadata, error) {
-	return llm.ModelMetadata{Name: "mock"}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -596,7 +589,7 @@ func TestHandleHealthCheck(t *testing.T) {
 				return 42, nil
 			},
 		}
-		llmProv := &mockLLMProvider{}
+		llmProv := &mockEmbeddingProvider{}
 		handler := HandleHealth(ms, llmProv, "test", 23, time.Now(), testLogger())
 
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -635,7 +628,7 @@ func TestHandleHealthCheck(t *testing.T) {
 				return 10, nil
 			},
 		}
-		llmProv := &failingLLMProvider{}
+		llmProv := &failingEmbeddingProvider{}
 		handler := HandleHealth(ms, llmProv, "test", 23, time.Now(), testLogger())
 
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -668,7 +661,7 @@ func TestHandleHealthCheck(t *testing.T) {
 				return 0, fmt.Errorf("db connection refused")
 			},
 		}
-		llmProv := &mockLLMProvider{}
+		llmProv := &mockEmbeddingProvider{}
 		handler := HandleHealth(ms, llmProv, "test", 23, time.Now(), testLogger())
 
 		req := httptest.NewRequest(http.MethodGet, "/health", nil)
@@ -813,25 +806,19 @@ func TestResponseContentType(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// failingLLMProvider - an LLM provider whose Health always fails
+// failingEmbeddingProvider - an embedding provider whose Health always fails
 // ---------------------------------------------------------------------------
 
-type failingLLMProvider struct{}
+type failingEmbeddingProvider struct{}
 
-func (p *failingLLMProvider) Complete(ctx context.Context, req llm.CompletionRequest) (llm.CompletionResponse, error) {
-	return llm.CompletionResponse{}, fmt.Errorf("unavailable")
-}
-func (p *failingLLMProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+func (p *failingEmbeddingProvider) Embed(_ context.Context, _ string) ([]float32, error) {
 	return nil, fmt.Errorf("unavailable")
 }
-func (p *failingLLMProvider) BatchEmbed(ctx context.Context, texts []string) ([][]float32, error) {
+func (p *failingEmbeddingProvider) BatchEmbed(_ context.Context, _ []string) ([][]float32, error) {
 	return nil, fmt.Errorf("unavailable")
 }
-func (p *failingLLMProvider) Health(ctx context.Context) error {
+func (p *failingEmbeddingProvider) Health(_ context.Context) error {
 	return fmt.Errorf("connection refused")
-}
-func (p *failingLLMProvider) ModelInfo(ctx context.Context) (llm.ModelMetadata, error) {
-	return llm.ModelMetadata{}, fmt.Errorf("unavailable")
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ type Config struct {
 	Level  string `yaml:"level"`
 	Format string `yaml:"format"`
 	File   string `yaml:"file"`
+	Stderr bool   // Write to stderr instead of stdout (used by MCP mode to avoid corrupting stdout JSON-RPC)
 }
 
 // New creates a new structured logger based on configuration.
@@ -43,6 +44,9 @@ func New(cfg Config) (*slog.Logger, error) {
 			return nil, fmt.Errorf("opening log file %s: %w", cfg.File, err)
 		}
 		w = rw
+	} else if cfg.Stderr {
+		// MCP mode — write to stderr to avoid corrupting stdout JSON-RPC.
+		w = os.Stderr
 	} else {
 		// No file configured — write to stdout (used by CLI commands).
 		w = os.Stdout

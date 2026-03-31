@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/llm"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 )
 
 // ErrNotFound is returned when a requested entity does not exist.
@@ -549,9 +549,9 @@ type ExclusionStore interface {
 
 // UsageStore handles LLM and MCP tool usage tracking.
 type UsageStore interface {
-	RecordLLMUsage(ctx context.Context, record llm.LLMUsageRecord) error
+	RecordLLMUsage(ctx context.Context, record usage.Record) error
 	GetLLMUsageSummary(ctx context.Context, since time.Time) (LLMUsageSummary, error)
-	GetLLMUsageLog(ctx context.Context, since time.Time, limit int) ([]llm.LLMUsageRecord, error)
+	GetLLMUsageLog(ctx context.Context, since time.Time, limit int) ([]usage.Record, error)
 	GetLLMUsageChart(ctx context.Context, since time.Time, bucketSecs int) ([]LLMChartBucket, error)
 	RecordToolUsage(ctx context.Context, record ToolUsageRecord) error
 	GetToolUsageSummary(ctx context.Context, since time.Time) (ToolUsageSummary, error)

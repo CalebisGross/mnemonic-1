@@ -10,8 +10,6 @@ import (
 	"github.com/appsprout-dev/mnemonic/internal/agent/retrieval"
 	"github.com/appsprout-dev/mnemonic/internal/config"
 	"github.com/appsprout-dev/mnemonic/internal/embedding"
-	"github.com/appsprout-dev/mnemonic/internal/llm"
-	"github.com/appsprout-dev/mnemonic/internal/llm/llamacpp"
 	"github.com/appsprout-dev/mnemonic/internal/logger"
 	"github.com/appsprout-dev/mnemonic/internal/store/sqlite"
 )
@@ -86,9 +84,8 @@ func convertSourceWeights(src map[string]float64) map[string]float32 {
 	return out
 }
 
-// initRuntime loads config, opens store and LLM for CLI commands.
-// The returned Provider includes training data capture if enabled in config.
-func initRuntime(configPath string) (*config.Config, *sqlite.SQLiteStore, llm.Provider, *slog.Logger) {
+// initRuntime loads config, opens store, and initializes logging for CLI commands.
+func initRuntime(configPath string) (*config.Config, *sqlite.SQLiteStore, *slog.Logger) {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		die(exitConfig, fmt.Sprintf("loading config: %v", err), "mnemonic diagnose")
@@ -106,20 +103,41 @@ func initRuntime(configPath string) (*config.Config, *sqlite.SQLiteStore, llm.Pr
 		die(exitDatabase, fmt.Sprintf("opening database: %v", err), "mnemonic diagnose")
 	}
 
-	provider := newLLMProvider(cfg)
-
-	// Wrap with training data capture if enabled
-	if cfg.Training.CaptureEnabled && cfg.Training.CaptureDir != "" {
-		provider = llm.NewTrainingCaptureProvider(provider, "cli", cfg.Training.CaptureDir)
-	}
-
-	return cfg, db, provider, log
+	return cfg, db, log
 }
 
-// initEmbeddingRuntime is like initRuntime but returns an embedding.Provider
-// instead of llm.Provider. Used by CLI commands that create agents.
+// initEmbeddingRuntime is like initRuntime but also creates an embedding.Provider.
+// Used by CLI commands that create agents.
 func initEmbeddingRuntime(configPath string) (*config.Config, *sqlite.SQLiteStore, embedding.Provider, *slog.Logger) {
-	cfg, db, _, log := initRuntime(configPath)
+	cfg, db, log := initRuntime(configPath)
+	embProv := newEmbeddingProvider(cfg)
+	return cfg, db, embProv, log
+}
+
+// initEmbeddingRuntimeMCP is like initEmbeddingRuntime but forces all logging to
+// stderr so that stdout remains clean for MCP JSON-RPC framing.
+func initEmbeddingRuntimeMCP(configPath string) (*config.Config, *sqlite.SQLiteStore, embedding.Provider, *slog.Logger) {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		die(exitConfig, fmt.Sprintf("loading config: %v", err), "mnemonic diagnose")
+	}
+
+	log, err := logger.New(logger.Config{Level: "warn", Format: "text", Stderr: true})
+	if err != nil {
+		die(exitGeneral, fmt.Sprintf("initializing logger: %v", err), "")
+	}
+
+	// Redirect the global slog default to stderr so that any slog.Info/Warn/Error
+	// calls (e.g. in newEmbeddingProvider) don't corrupt stdout.
+	slog.SetDefault(log)
+
+	_ = cfg.EnsureDataDir()
+
+	db, err := sqlite.NewSQLiteStore(cfg.Store.DBPath, cfg.Store.BusyTimeoutMs)
+	if err != nil {
+		die(exitDatabase, fmt.Sprintf("opening database: %v", err), "mnemonic diagnose")
+	}
+
 	embProv := newEmbeddingProvider(cfg)
 	return cfg, db, embProv, log
 }
@@ -193,51 +211,6 @@ func buildEncodingConfig(cfg *config.Config) encoding.EncodingConfig {
 		BatchSizePoll:           cfg.Encoding.BatchSizePoll,
 		DeduplicationThreshold:  float32(cfg.Encoding.DeduplicationThreshold),
 		SalienceFloor:           cfg.Encoding.SalienceFloor,
-	}
-}
-
-// newLLMProvider creates the appropriate LLM provider based on config.
-// For "api" (default), it creates an LMStudioProvider for OpenAI-compatible APIs.
-// For "embedded", it creates an EmbeddedProvider for in-process llama.cpp inference.
-func newLLMProvider(cfg *config.Config) llm.Provider {
-	switch cfg.LLM.Provider {
-	case "embedded":
-		ep := llm.NewEmbeddedProvider(llm.EmbeddedProviderConfig{
-			ModelsDir:      cfg.LLM.Embedded.ModelsDir,
-			ChatModelFile:  cfg.LLM.Embedded.ChatModelFile,
-			EmbedModelFile: cfg.LLM.Embedded.EmbedModelFile,
-			ContextSize:    cfg.LLM.Embedded.ContextSize,
-			GPULayers:      cfg.LLM.Embedded.GPULayers,
-			Threads:        cfg.LLM.Embedded.Threads,
-			BatchSize:      cfg.LLM.Embedded.BatchSize,
-			MaxTokens:      cfg.LLM.MaxTokens,
-			Temperature:    float32(cfg.LLM.Temperature),
-			MaxConcurrent:  cfg.LLM.MaxConcurrent,
-		})
-		backend := llamacpp.NewBackend()
-		if backend != nil {
-			if err := ep.LoadModels(func() llm.Backend {
-				return llamacpp.NewBackend()
-			}); err != nil {
-				slog.Error("failed to load embedded models", "error", err)
-			}
-		} else {
-			slog.Warn("embedded provider selected but llama.cpp not compiled in (build with: make build-embedded)")
-		}
-		return ep
-	default: // "api" or ""
-		timeout := time.Duration(cfg.LLM.TimeoutSec) * time.Second
-		if timeout == 0 {
-			timeout = 30 * time.Second
-		}
-		return llm.NewLMStudioProvider(
-			cfg.LLM.Endpoint,
-			cfg.LLM.ChatModel,
-			cfg.LLM.EmbeddingModel,
-			cfg.LLM.APIKey,
-			timeout,
-			cfg.LLM.MaxConcurrent,
-		)
 	}
 }
 
