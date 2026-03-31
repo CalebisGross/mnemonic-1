@@ -1333,11 +1333,15 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 					shown = 3
 				}
 				for _, mem := range lastSessionMems[:shown] {
-					summary := mem.Summary
-					if len(summary) > 120 {
-						summary = summary[:120] + "..."
+					// Show full content for last session — this IS the handoff
+					content := mem.Content
+					if content == "" || content == mem.Summary {
+						content = mem.Summary
 					}
-					text += fmt.Sprintf("  - [%s] %s\n", mem.Type, summary)
+					if len(content) > 500 {
+						content = content[:500] + "..."
+					}
+					text += fmt.Sprintf("  - [%s] %s\n", mem.Type, content)
 				}
 				if len(lastSessionMems) > 3 {
 					text += fmt.Sprintf("  ... and %d more from that session\n", len(lastSessionMems)-3)
