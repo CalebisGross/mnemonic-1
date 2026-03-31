@@ -91,10 +91,10 @@ func Similarity(a, b QuantizedVector) float32 {
 // Each dimension is independently mapped to [-127, 127] using per-vector
 // min/max scaling. Simple, fast, and much higher recall than 1-bit QJL.
 type ScalarQuantizedVector struct {
-	Values []int8   // quantized dimension values
-	Min    float32  // original min value (for dequantization)
-	Max    float32  // original max value (for dequantization)
-	Norm   float32  // L2 norm of original vector
+	Values []int8  // quantized dimension values
+	Min    float32 // original min value (for dequantization)
+	Max    float32 // original max value (for dequantization)
+	Norm   float32 // L2 norm of original vector
 }
 
 // ScalarQuantize compresses a float32 vector to int8 per dimension.

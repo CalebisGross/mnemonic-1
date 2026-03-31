@@ -12,9 +12,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/appsprout-dev/mnemonic/internal/events"
+	"github.com/appsprout-dev/mnemonic/internal/fsutil"
 	"github.com/appsprout-dev/mnemonic/internal/ingest/extract"
 	"github.com/appsprout-dev/mnemonic/internal/store"
-	"github.com/appsprout-dev/mnemonic/internal/fsutil"
 )
 
 const batchSize = 50

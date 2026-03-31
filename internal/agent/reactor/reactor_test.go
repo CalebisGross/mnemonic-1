@@ -612,13 +612,13 @@ func TestNewChainRegistry(t *testing.T) {
 	dreamTrigger := make(chan struct{}, 1)
 
 	chains := NewChainRegistry(ChainDeps{
-		ConsolidationTrigger:  consolTrigger,
-		AbstractionTrigger:    abstrTrigger,
-		MetacognitionTrigger:  metaTrigger,
-		DreamingTrigger:     dreamTrigger,
-		IncrementAutonomous: func() {},
-		MaxDBSizeMB:         100,
-		Logger:              testLogger(),
+		ConsolidationTrigger: consolTrigger,
+		AbstractionTrigger:   abstrTrigger,
+		MetacognitionTrigger: metaTrigger,
+		DreamingTrigger:      dreamTrigger,
+		IncrementAutonomous:  func() {},
+		MaxDBSizeMB:          100,
+		Logger:               testLogger(),
 	})
 
 	if len(chains) != 6 {

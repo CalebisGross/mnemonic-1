@@ -9,12 +9,11 @@ import (
 	"sync"
 	"time"
 
-
 	"github.com/appsprout-dev/mnemonic/internal/agent/agentutil"
-	"github.com/appsprout-dev/mnemonic/internal/fsutil"
 	"github.com/appsprout-dev/mnemonic/internal/agent/retrieval"
 	"github.com/appsprout-dev/mnemonic/internal/embedding"
 	"github.com/appsprout-dev/mnemonic/internal/events"
+	"github.com/appsprout-dev/mnemonic/internal/fsutil"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 )
 
@@ -1501,4 +1500,3 @@ func conceptOverlap(queryConcepts, candidateConcepts []string) float64 {
 	}
 	return float64(matches) / float64(len(queryConcepts))
 }
-

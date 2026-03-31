@@ -31,7 +31,7 @@ func HandleBackfillEmbeddings(s store.Store, provider embedding.Provider, log *s
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
 		defer cancel()
 
-		mode := r.URL.Query().Get("mode")     // "all" or "" (default: mismatched only)
+		mode := r.URL.Query().Get("mode")      // "all" or "" (default: mismatched only)
 		limitStr := r.URL.Query().Get("limit") // batch size
 		limit := 500
 		if limitStr != "" {

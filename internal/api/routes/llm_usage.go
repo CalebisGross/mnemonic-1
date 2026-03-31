@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/usage"
 	"github.com/appsprout-dev/mnemonic/internal/store"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 )
 
 // LLMUsageResponse is the JSON response for the LLM usage endpoint.

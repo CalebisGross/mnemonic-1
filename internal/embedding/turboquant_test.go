@@ -334,7 +334,7 @@ func TestScalarQuantCompressionRatio(t *testing.T) {
 	v := makeUnitVector(384, 1)
 	pv := ScalarQuantize(v)
 
-	origBytes := 384 * 4 // float32
+	origBytes := 384 * 4               // float32
 	scalarBytes := len(pv.Values) + 12 // values (int8) + min + max + norm
 	ratio := float64(origBytes) / float64(scalarBytes)
 

@@ -28,16 +28,16 @@ type DreamingConfig struct {
 }
 
 type DreamingAgent struct {
-	store    store.Store
-	embedder embedding.Provider
-	config   DreamingConfig
-	log         *slog.Logger
-	bus         events.Bus
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	stopOnce    sync.Once
-	triggerCh   chan struct{}
+	store     store.Store
+	embedder  embedding.Provider
+	config    DreamingConfig
+	log       *slog.Logger
+	bus       events.Bus
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	stopOnce  sync.Once
+	triggerCh chan struct{}
 }
 
 type DreamReport struct {

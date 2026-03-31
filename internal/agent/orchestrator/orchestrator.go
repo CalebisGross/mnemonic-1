@@ -48,12 +48,12 @@ type HealthReport struct {
 
 // Orchestrator is the central autonomous scheduler and health monitor.
 type Orchestrator struct {
-	store    store.Store
-	embedder embedding.Provider
-	config      OrchestratorConfig
-	log         *slog.Logger
-	bus         events.Bus
-	startTime   time.Time
+	store     store.Store
+	embedder  embedding.Provider
+	config    OrchestratorConfig
+	log       *slog.Logger
+	bus       events.Bus
+	startTime time.Time
 
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -69,12 +69,12 @@ type Orchestrator struct {
 
 func NewOrchestrator(s store.Store, embedder embedding.Provider, cfg OrchestratorConfig, log *slog.Logger) *Orchestrator {
 	return &Orchestrator{
-		store:    s,
-		embedder: embedder,
-		config:      cfg,
-		log:         log,
-		startTime:   time.Now(),
-		llmHealthy:  true,
+		store:      s,
+		embedder:   embedder,
+		config:     cfg,
+		log:        log,
+		startTime:  time.Now(),
+		llmHealthy: true,
 	}
 }
 

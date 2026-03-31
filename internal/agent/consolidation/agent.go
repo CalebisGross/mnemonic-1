@@ -102,19 +102,18 @@ func DefaultConfig() ConsolidationConfig {
 	}
 }
 
-
 // ConsolidationAgent performs periodic memory consolidation — the "sleeping brain."
 // Each cycle: decay salience → transition states → prune associations → merge clusters → delete expired.
 type ConsolidationAgent struct {
-	store    store.Store
-	embedder embedding.Provider
-	config   ConsolidationConfig
-	log      *slog.Logger
-	bus      events.Bus
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	stopOnce sync.Once
+	store     store.Store
+	embedder  embedding.Provider
+	config    ConsolidationConfig
+	log       *slog.Logger
+	bus       events.Bus
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	stopOnce  sync.Once
 	triggerCh chan struct{} // allows on-demand consolidation via event bus or reactor
 }
 

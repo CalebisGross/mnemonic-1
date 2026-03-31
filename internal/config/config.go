@@ -18,28 +18,28 @@ import (
 type Config struct {
 	Embedding      EmbeddingProviderConfig `yaml:"embedding"`
 	LLM            LLMConfig               `yaml:"llm"`
-	Store          StoreConfig          `yaml:"store"`
-	Memory         MemoryConfig         `yaml:"memory"`
-	Perception     PerceptionConfig     `yaml:"perception"`
-	Encoding       EncodingConfig       `yaml:"encoding"`
-	Consolidation  ConsolidationConfig  `yaml:"consolidation"`
-	Retrieval      RetrievalConfig      `yaml:"retrieval"`
-	Metacognition  MetacognitionConfig  `yaml:"metacognition"`
-	Dreaming       DreamingConfig       `yaml:"dreaming"`
-	Episoding      EpisodingConfig      `yaml:"episoding"`
-	Abstraction    AbstractionConfig    `yaml:"abstraction"`
-	Orchestrator   OrchestratorConfig   `yaml:"orchestrator"`
-	Reactor        ReactorConfig        `yaml:"reactor"`
-	Forum          ForumConfig          `yaml:"forum"`
-	MemoryDefaults MemoryDefaultsConfig `yaml:"memory_defaults"`
-	MCP            MCPConfig            `yaml:"mcp"`
-	AgentSDK       AgentSDKConfig       `yaml:"agent_sdk"`
-	Training       TrainingConfig       `yaml:"training"`
-	Coaching       CoachingConfig       `yaml:"coaching"`
-	API            APIConfig            `yaml:"api"`
-	Web            WebConfig            `yaml:"web"`
-	Logging        LoggingConfig        `yaml:"logging"`
-	Projects       []ProjectConfig      `yaml:"projects"`
+	Store          StoreConfig             `yaml:"store"`
+	Memory         MemoryConfig            `yaml:"memory"`
+	Perception     PerceptionConfig        `yaml:"perception"`
+	Encoding       EncodingConfig          `yaml:"encoding"`
+	Consolidation  ConsolidationConfig     `yaml:"consolidation"`
+	Retrieval      RetrievalConfig         `yaml:"retrieval"`
+	Metacognition  MetacognitionConfig     `yaml:"metacognition"`
+	Dreaming       DreamingConfig          `yaml:"dreaming"`
+	Episoding      EpisodingConfig         `yaml:"episoding"`
+	Abstraction    AbstractionConfig       `yaml:"abstraction"`
+	Orchestrator   OrchestratorConfig      `yaml:"orchestrator"`
+	Reactor        ReactorConfig           `yaml:"reactor"`
+	Forum          ForumConfig             `yaml:"forum"`
+	MemoryDefaults MemoryDefaultsConfig    `yaml:"memory_defaults"`
+	MCP            MCPConfig               `yaml:"mcp"`
+	AgentSDK       AgentSDKConfig          `yaml:"agent_sdk"`
+	Training       TrainingConfig          `yaml:"training"`
+	Coaching       CoachingConfig          `yaml:"coaching"`
+	API            APIConfig               `yaml:"api"`
+	Web            WebConfig               `yaml:"web"`
+	Logging        LoggingConfig           `yaml:"logging"`
+	Projects       []ProjectConfig         `yaml:"projects"`
 }
 
 // LLMConfig holds LLM provider settings.

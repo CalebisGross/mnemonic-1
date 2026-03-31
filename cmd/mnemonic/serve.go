@@ -24,8 +24,8 @@ import (
 	"github.com/appsprout-dev/mnemonic/internal/backup"
 	"github.com/appsprout-dev/mnemonic/internal/config"
 	"github.com/appsprout-dev/mnemonic/internal/daemon"
-	"github.com/appsprout-dev/mnemonic/internal/events"
 	"github.com/appsprout-dev/mnemonic/internal/embedding"
+	"github.com/appsprout-dev/mnemonic/internal/events"
 	"github.com/appsprout-dev/mnemonic/internal/logger"
 	"github.com/appsprout-dev/mnemonic/internal/mcp"
 	"github.com/appsprout-dev/mnemonic/internal/store"
@@ -58,7 +58,6 @@ func serveCommand(configPath string) {
 	}
 
 	// Build project resolver from config
-
 
 	// Initialize logger
 	log, err := logger.New(logger.Config{
@@ -142,7 +141,6 @@ func serveCommand(configPath string) {
 
 	// Create embedding provider (heuristic pipeline — no generative LLM needed)
 	embProvider := newEmbeddingProvider(cfg)
-
 
 	// Check for embedding model drift
 	embModel := cfg.LLM.EmbeddingModel

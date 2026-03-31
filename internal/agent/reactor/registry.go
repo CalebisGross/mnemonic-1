@@ -19,7 +19,7 @@ type ChainDeps struct {
 	IncrementAutonomous  func()
 	MaxDBSizeMB          int
 	CooldownOverrides    map[string]time.Duration // chain ID -> cooldown override
-	Logger *slog.Logger
+	Logger               *slog.Logger
 }
 
 // cooldown returns the override duration for a chain if set, otherwise the default.

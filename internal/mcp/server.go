@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
-	"os"
 	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -127,14 +127,14 @@ func NewMCPServer(s store.Store, r *retrieval.RetrievalAgent, bus events.Bus, lo
 	log.Info("MCP server initialized", "session_id", sessionID, "project", project)
 
 	return &MCPServer{
-		store:               s,
-		retriever:           r,
-		bus:                 bus,
-		log:                 log,
-		version:             version,
-		sessionID:           sessionID,
-		project:             project,
-		resolver:            resolver,
+		store:              s,
+		retriever:          r,
+		bus:                bus,
+		log:                log,
+		version:            version,
+		sessionID:          sessionID,
+		project:            project,
+		resolver:           resolver,
 		excludePatterns:    excludePatterns,
 		maxContentBytes:    maxContentBytes,
 		memDefaults:        memDefaults,

@@ -13,8 +13,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/appsprout-dev/mnemonic/internal/usage"
 	store "github.com/appsprout-dev/mnemonic/internal/store"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 )
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.
@@ -26,10 +26,10 @@ type scanner interface {
 type SQLiteStore struct {
 	db            *sql.DB
 	dbPath        string
-	embIndex      *embeddingIndex  // float32 brute-force index (handles mixed dimensions)
-	quantIndex    *quantizedIndex  // TurboQuant 1-bit index (fast, single-dimension only)
-	indexCount    int              // number of embeddings loaded at startup
-	indexLoadTime time.Duration    // how long loadEmbeddingIndex took
+	embIndex      *embeddingIndex // float32 brute-force index (handles mixed dimensions)
+	quantIndex    *quantizedIndex // TurboQuant 1-bit index (fast, single-dimension only)
+	indexCount    int             // number of embeddings loaded at startup
+	indexLoadTime time.Duration   // how long loadEmbeddingIndex took
 }
 
 // NewSQLiteStore opens a SQLite database and initializes the schema.
@@ -2606,7 +2606,6 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
-
 
 // --- MCP tool usage tracking ---
 

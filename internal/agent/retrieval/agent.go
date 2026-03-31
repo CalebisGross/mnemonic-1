@@ -130,7 +130,6 @@ func DefaultConfig() RetrievalConfig {
 	}
 }
 
-
 // QueryRequest is the input for a retrieval query.
 type QueryRequest struct {
 	Query               string
@@ -188,8 +187,8 @@ func NewRetrievalAgent(s store.Store, embedder embedding.Provider, cfg Retrieval
 	ra := &RetrievalAgent{
 		store:    s,
 		embedder: embedder,
-		config: cfg,
-		log:    log,
+		config:   cfg,
+		log:      log,
 		stats: &retrievalStats{
 			TotalQueries: 0,
 		},
@@ -756,7 +755,6 @@ func (ra *RetrievalAgent) rankResults(ctx context.Context, activated map[string]
 	return results
 }
 
-
 // ParseQueryConcepts extracts meaningful tokens from text by splitting on spaces
 // and filtering common words. Useful for lightweight concept extraction without LLM.
 func ParseQueryConcepts(query string) []string {
@@ -877,7 +875,6 @@ func hasAnyConcept(memoryConcepts, excluded []string) bool {
 	}
 	return false
 }
-
 
 // applyDiversityFilter reranks results using Maximal Marginal Relevance (MMR).
 // It iteratively selects results that balance relevance (original score) against

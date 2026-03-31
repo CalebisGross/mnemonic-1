@@ -7,8 +7,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/usage"
 	"github.com/appsprout-dev/mnemonic/internal/store"
+	"github.com/appsprout-dev/mnemonic/internal/usage"
 )
 
 // MockStore implements every method of store.Store with zero-value returns.
@@ -263,7 +263,7 @@ func (MockStore) SearchAbstractionsByEmbedding(context.Context, []float32, int) 
 }
 func (MockStore) ArchiveAbstraction(context.Context, string) error    { return nil }
 func (MockStore) ArchiveAllAbstractions(context.Context) (int, error) { return 0, nil }
-func (MockStore) ArchiveMemory(context.Context, string) error            { return nil }
+func (MockStore) ArchiveMemory(context.Context, string) error         { return nil }
 
 // --- Scoped queries ---
 

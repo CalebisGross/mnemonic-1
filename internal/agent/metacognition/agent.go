@@ -21,16 +21,16 @@ type MetacognitionConfig struct {
 }
 
 type MetacognitionAgent struct {
-	store    store.Store
-	embedder embedding.Provider
-	config   MetacognitionConfig
-	log         *slog.Logger
-	bus         events.Bus
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	stopOnce    sync.Once
-	triggerCh   chan struct{}
+	store     store.Store
+	embedder  embedding.Provider
+	config    MetacognitionConfig
+	log       *slog.Logger
+	bus       events.Bus
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	stopOnce  sync.Once
+	triggerCh chan struct{}
 }
 
 func NewMetacognitionAgent(s store.Store, embedder embedding.Provider, cfg MetacognitionConfig, log *slog.Logger) *MetacognitionAgent {

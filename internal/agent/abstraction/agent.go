@@ -28,15 +28,15 @@ type AbstractionConfig struct {
 }
 
 type AbstractionAgent struct {
-	store    store.Store
-	embedder embedding.Provider
-	config   AbstractionConfig
-	log      *slog.Logger
-	bus      events.Bus
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	stopOnce sync.Once
+	store     store.Store
+	embedder  embedding.Provider
+	config    AbstractionConfig
+	log       *slog.Logger
+	bus       events.Bus
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	stopOnce  sync.Once
 	triggerCh chan struct{} // allows on-demand abstraction when patterns are discovered
 }
 

@@ -11,8 +11,8 @@ import (
 
 	"github.com/appsprout-dev/mnemonic/internal/agent/retrieval"
 	"github.com/appsprout-dev/mnemonic/internal/api/routes"
-	"github.com/appsprout-dev/mnemonic/internal/events"
 	"github.com/appsprout-dev/mnemonic/internal/embedding"
+	"github.com/appsprout-dev/mnemonic/internal/events"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 	"github.com/appsprout-dev/mnemonic/internal/web"
 )

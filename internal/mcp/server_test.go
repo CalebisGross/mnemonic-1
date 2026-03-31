@@ -388,4 +388,3 @@ func TestFormatDuration(t *testing.T) {
 		})
 	}
 }
-
