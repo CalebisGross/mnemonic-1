@@ -147,7 +147,7 @@ func mcpCommand(configPath string) {
 		FeedbackStrengthDelta: cfg.MemoryDefaults.FeedbackStrengthDelta,
 		FeedbackSalienceBoost: cfg.MemoryDefaults.FeedbackSalienceBoost,
 	}
-	server := mcp.NewMCPServer(db, retriever, bus, log, Version, cfg.Coaching.CoachingFile, cfg.Perception.Filesystem.ExcludePatterns, cfg.Perception.Filesystem.MaxContentBytes, mcpResolver, daemonURL, memDefaults)
+	server := mcp.NewMCPServer(db, retriever, bus, log, Version, cfg.Perception.Filesystem.ExcludePatterns, cfg.Perception.Filesystem.MaxContentBytes, mcpResolver, daemonURL, memDefaults)
 
 	// Handle signal for graceful shutdown
 	sigChan := make(chan os.Signal, 1)

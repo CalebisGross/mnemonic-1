@@ -7,17 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"sort"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
-	"io"
-	"net/http"
-
 	"github.com/appsprout-dev/mnemonic/internal/agent/retrieval"
-	"github.com/appsprout-dev/mnemonic/internal/concepts"
 	"github.com/appsprout-dev/mnemonic/internal/events"
-	"github.com/appsprout-dev/mnemonic/internal/ingest"
 	"github.com/appsprout-dev/mnemonic/internal/store"
 	"github.com/google/uuid"
 )
@@ -102,27 +98,18 @@ type MCPServer struct {
 	sessionID       string // auto-generated per MCP server lifetime
 	project         string // auto-detected from working directory
 	resolver        ProjectResolver
-	coachingFile    string // path for coach_local_llm writes
 	excludePatterns []string
 	maxContentBytes int
 	memDefaults     MemoryDefaults // shared salience and feedback tuning
 
-	// Proactive context state (session-scoped)
-	lastContextTime    time.Time       // watermark for get_context polling
 	sessionRecalledIDs map[string]bool // memory IDs already surfaced via recall this session
-
-	// Suggestion acceptance tracking (session-scoped)
-	contextSuggestedIDs map[string]time.Time // memory IDs suggested by get_context → when
-	contextAccepted     int                  // count of suggested IDs later recalled/rated
-	contextTotalOffered int                  // total IDs offered across all get_context calls
-	lastSuggestedIDsCSV string               // comma-separated IDs from last get_context (for tool_usage recording)
 
 	// Daemon activity sync (for context_boost in MCP processes)
 	daemonURL string // base URL of daemon API (e.g. "http://127.0.0.1:9999")
 }
 
 // NewMCPServer creates a new MCP server with the given dependencies.
-func NewMCPServer(s store.Store, r *retrieval.RetrievalAgent, bus events.Bus, log *slog.Logger, version string, coachingFile string, excludePatterns []string, maxContentBytes int, resolver ProjectResolver, daemonURL string, memDefaults MemoryDefaults) *MCPServer {
+func NewMCPServer(s store.Store, r *retrieval.RetrievalAgent, bus events.Bus, log *slog.Logger, version string, excludePatterns []string, maxContentBytes int, resolver ProjectResolver, daemonURL string, memDefaults MemoryDefaults) *MCPServer {
 	// Auto-detect project from working directory
 	wd, _ := os.Getwd()
 	var project string
@@ -147,14 +134,11 @@ func NewMCPServer(s store.Store, r *retrieval.RetrievalAgent, bus events.Bus, lo
 		sessionID:           sessionID,
 		project:             project,
 		resolver:            resolver,
-		coachingFile:        coachingFile,
-		excludePatterns:     excludePatterns,
-		maxContentBytes:     maxContentBytes,
-		memDefaults:         memDefaults,
-		daemonURL:           daemonURL,
-		lastContextTime:     time.Now(),
-		sessionRecalledIDs:  make(map[string]bool),
-		contextSuggestedIDs: make(map[string]time.Time),
+		excludePatterns:    excludePatterns,
+		maxContentBytes:    maxContentBytes,
+		memDefaults:        memDefaults,
+		daemonURL:          daemonURL,
+		sessionRecalledIDs: make(map[string]bool),
 	}
 }
 
@@ -317,50 +301,16 @@ func (srv *MCPServer) handleToolCall(ctx context.Context, req *jsonRPCRequest) *
 		result, toolErr = srv.handleRemember(ctx, params.Arguments)
 	case "recall":
 		result, toolErr = srv.handleRecall(ctx, params.Arguments)
-	case "batch_recall":
-		result, toolErr = srv.handleBatchRecall(ctx, params.Arguments)
-	case "get_context":
-		result, toolErr = srv.handleGetContext(ctx, params.Arguments)
-	case "forget":
-		result, toolErr = srv.handleForget(ctx, params.Arguments)
-	case "status":
-		result, toolErr = srv.handleStatus(ctx, params.Arguments)
 	case "recall_project":
 		result, toolErr = srv.handleRecallProject(ctx, params.Arguments)
-	case "recall_timeline":
-		result, toolErr = srv.handleRecallTimeline(ctx, params.Arguments)
-	case "session_summary":
-		result, toolErr = srv.handleSessionSummary(ctx, params.Arguments)
-	case "get_patterns":
-		result, toolErr = srv.handleGetPatterns(ctx, params.Arguments)
-	case "get_insights":
-		result, toolErr = srv.handleGetInsights(ctx, params.Arguments)
+	case "batch_recall":
+		result, toolErr = srv.handleBatchRecall(ctx, params.Arguments)
 	case "feedback":
 		result, toolErr = srv.handleFeedback(ctx, params.Arguments)
-	case "audit_encodings":
-		result, toolErr = srv.handleAuditEncodings(ctx, params.Arguments)
-	case "coach_local_llm":
-		result, toolErr = srv.handleCoachLocalLLM(ctx, params.Arguments)
-	case "ingest_project":
-		result, toolErr = srv.handleIngestProject(ctx, params.Arguments)
-	case "list_sessions":
-		result, toolErr = srv.handleListSessions(ctx, params.Arguments)
-	case "recall_session":
-		result, toolErr = srv.handleRecallSession(ctx, params.Arguments)
-	case "exclude_path":
-		result, toolErr = srv.handleExcludePath(ctx, params.Arguments)
-	case "list_exclusions":
-		result, toolErr = srv.handleListExclusions(ctx, params.Arguments)
+	case "status":
+		result, toolErr = srv.handleStatus(ctx, params.Arguments)
 	case "amend":
 		result, toolErr = srv.handleAmend(ctx, params.Arguments)
-	case "check_memory":
-		result, toolErr = srv.handleCheckMemory(ctx, params.Arguments)
-	case "dismiss_pattern":
-		result, toolErr = srv.handleDismissPattern(ctx, params.Arguments)
-	case "dismiss_abstraction":
-		result, toolErr = srv.handleDismissAbstraction(ctx, params.Arguments)
-	case "create_handoff":
-		result, toolErr = srv.handleCreateHandoff(ctx, params.Arguments)
 	default:
 		return errorResponse(req.ID, -32602, fmt.Sprintf("Unknown tool: %s", params.Name))
 	}
@@ -403,8 +353,6 @@ func (srv *MCPServer) recordToolUsage(ctx context.Context, params toolCallParams
 		if r, ok := params.Arguments["quality"].(string); ok {
 			rec.Rating = r
 		}
-	case "get_context":
-		rec.SuggestedIDs = srv.lastSuggestedIDsCSV
 	}
 
 	// Measure response size and track get_context acceptance.
@@ -414,48 +362,8 @@ func (srv *MCPServer) recordToolUsage(ctx context.Context, params toolCallParams
 		}
 	}
 
-	// Track suggestion acceptance: if a recall or feedback call references
-	// memory IDs that get_context previously suggested, count as accepted.
-	if len(srv.contextSuggestedIDs) > 0 {
-		switch params.Name {
-		case "recall", "recall_project", "recall_timeline", "recall_session", "batch_recall":
-			srv.checkAcceptance(result)
-		case "feedback":
-			if ids, ok := params.Arguments["memory_ids"]; ok {
-				if idList, ok := ids.([]interface{}); ok {
-					for _, id := range idList {
-						if idStr, ok := id.(string); ok {
-							if _, suggested := srv.contextSuggestedIDs[idStr]; suggested {
-								srv.contextAccepted++
-								delete(srv.contextSuggestedIDs, idStr)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
 	if err := srv.store.RecordToolUsage(ctx, rec); err != nil {
 		srv.log.Warn("failed to record tool usage", "tool", params.Name, "error", err)
-	}
-}
-
-// checkAcceptance scans a recall result for memory IDs that were previously
-// suggested by get_context and marks them as accepted.
-func (srv *MCPServer) checkAcceptance(result interface{}) {
-	// The result is a toolResult map with "content" containing text.
-	// Memory IDs appear as UUIDs in the text output — scan for matches.
-	resultBytes, err := json.Marshal(result)
-	if err != nil {
-		return
-	}
-	resultStr := string(resultBytes)
-	for id := range srv.contextSuggestedIDs {
-		if strings.Contains(resultStr, id) {
-			srv.contextAccepted++
-			delete(srv.contextSuggestedIDs, id)
-		}
 	}
 }
 
@@ -893,12 +801,17 @@ func (srv *MCPServer) handleRecallByID(ctx context.Context, id string) (interfac
 		return toolResult(formatSingleMemory(mem)), nil
 	}
 
-	// Check if raw memory exists but hasn't been encoded yet
+	// Check if raw memory exists but wasn't encoded (dedup or still pending)
 	raw, rawErr := srv.store.GetRaw(ctx, id)
 	if rawErr == nil {
+		if raw.Processed {
+			text := fmt.Sprintf("Memory %s was deduplicated — a similar memory already existed and was boosted instead.\n", id)
+			text += fmt.Sprintf("  Content: %s\n", raw.Content)
+			return toolResult(text), nil
+		}
 		text := fmt.Sprintf("Memory %s exists but is still encoding.\n", id)
-		text += fmt.Sprintf("  Source: %s\n  Type: %s\n  Created: %s\n  Content: %s\n",
-			raw.Source, raw.Type, raw.CreatedAt.Format("2006-01-02 15:04"), raw.Content)
+		text += fmt.Sprintf("  Type: %s\n  Created: %s\n  Content: %s\n",
+			raw.Type, raw.CreatedAt.Format("2006-01-02 15:04"), raw.Content)
 		return toolResult(text), nil
 	}
 
@@ -1146,328 +1059,6 @@ func (srv *MCPServer) handleBatchRecall(ctx context.Context, args map[string]int
 	return toolResult(string(jsonBytes)), nil
 }
 
-// handleGetContext returns proactive memory suggestions based on recent daemon activity.
-// It reads recent watcher events from the DB, extracts concepts, and finds related
-// encoded memories the agent hasn't already recalled this session.
-func (srv *MCPServer) handleGetContext(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	sinceMinutes := 10
-	if m, ok := args["since_minutes"].(float64); ok && int(m) > 0 {
-		sinceMinutes = int(m)
-	}
-
-	limit := 5
-	if l, ok := args["limit"].(float64); ok && int(l) > 0 {
-		limit = int(l)
-	}
-
-	outputFormat := "text"
-	if f, ok := args["format"].(string); ok && f == "json" {
-		outputFormat = f
-	}
-
-	// Use watermark if available, otherwise use since_minutes.
-	since := srv.lastContextTime
-	sinceOverride := time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
-	if sinceOverride.Before(since) {
-		since = sinceOverride
-	}
-
-	// Step 1: Fetch recent raw memories (watcher activity).
-	raws, err := srv.store.ListRawMemoriesAfter(ctx, since, 50)
-	if err != nil {
-		return nil, fmt.Errorf("listing recent activity: %w", err)
-	}
-
-	// Filter to current project if set, and exclude MCP source (agent's own memories).
-	var relevant []store.RawMemory
-	for _, raw := range raws {
-		if raw.Source == "mcp" {
-			continue // Skip agent's own memories — we want daemon observations.
-		}
-		if srv.project != "" && raw.Project != "" && raw.Project != srv.project {
-			continue
-		}
-		relevant = append(relevant, raw)
-	}
-
-	if len(relevant) == 0 {
-		srv.lastContextTime = time.Now()
-		return toolResult("No recent activity detected. The daemon watcher hasn't observed new events since your last check."), nil
-	}
-
-	// Step 2: Extract concepts from recent activity, tracking encoding coverage.
-	conceptCounts := make(map[string]int)
-	var encodedCount, fallbackCount int
-	var encodeLats []float64 // encode latencies in ms for encoded memories
-	for _, raw := range relevant {
-		// Prefer encoded memory concepts if available.
-		mem, err := srv.store.GetMemoryByRawID(ctx, raw.ID)
-		var extracted []string
-		if err == nil && len(mem.Concepts) > 0 {
-			extracted = mem.Concepts
-			encodedCount++
-			// Track encoding latency: time from raw creation to encoded memory creation.
-			if !mem.CreatedAt.IsZero() && !raw.CreatedAt.IsZero() {
-				latMs := float64(mem.CreatedAt.Sub(raw.CreatedAt).Milliseconds())
-				if latMs >= 0 {
-					encodeLats = append(encodeLats, latMs)
-				}
-			}
-		} else if raw.Source == "filesystem" {
-			// For filesystem events, extract concepts from the file path
-			// instead of content — raw content is source code whose tokens
-			// (Go keywords, type names, etc.) pollute theme extraction.
-			if pathVal, ok := raw.Metadata["path"].(string); ok && pathVal != "" {
-				extracted = concepts.FromPath(pathVal)
-			}
-			// Enrich with the event action (created, modified, deleted).
-			if action := concepts.FromEventType(raw.Type); action != "" {
-				extracted = append(extracted, action)
-			}
-			fallbackCount++
-		} else if raw.Source == "terminal" {
-			// For terminal events, extract command name and subcommand
-			// rather than treating the full command as natural language.
-			extracted = concepts.FromCommand(raw.Content)
-			fallbackCount++
-		} else {
-			extracted = retrieval.ParseQueryConcepts(raw.Content)
-			fallbackCount++
-		}
-		for _, c := range extracted {
-			conceptCounts[c]++
-		}
-	}
-
-	if len(conceptCounts) == 0 {
-		srv.lastContextTime = time.Now()
-		return toolResult("Recent activity detected but no meaningful concepts extracted."), nil
-	}
-
-	// Step 3: Rank concepts by frequency, take top 8.
-	type conceptFreq struct {
-		concept string
-		count   int
-	}
-	var ranked []conceptFreq
-	for c, n := range conceptCounts {
-		ranked = append(ranked, conceptFreq{c, n})
-	}
-	sort.Slice(ranked, func(i, j int) bool {
-		return ranked[i].count > ranked[j].count
-	})
-	topN := 8
-	if len(ranked) < topN {
-		topN = len(ranked)
-	}
-	topConcepts := make([]string, topN)
-	for i := 0; i < topN; i++ {
-		topConcepts[i] = ranked[i].concept
-	}
-
-	// Step 4: Search for related encoded memories.
-	candidates, err := srv.store.SearchByConceptsInProject(ctx, topConcepts, srv.project, limit*3)
-	if err != nil {
-		srv.log.Warn("proactive context search failed", "error", err)
-		candidates = nil
-	}
-
-	// Step 5: Filter — exclude already-recalled, suppressed, archived, low-match.
-	// Track all passing candidates (before limit) for novelty metrics.
-	var suggestions []store.Memory
-	var allPassing int
-	for _, mem := range candidates {
-		if srv.sessionRecalledIDs[mem.ID] {
-			continue
-		}
-		if mem.RecallSuppressed {
-			continue
-		}
-		if mem.State == "archived" {
-			continue
-		}
-		// Require at least 2 concept matches.
-		matches := 0
-		for _, mc := range mem.Concepts {
-			if conceptCounts[mc] > 0 {
-				matches++
-			}
-		}
-		if matches < 2 {
-			continue
-		}
-		allPassing++
-		if len(suggestions) < limit {
-			suggestions = append(suggestions, mem)
-		}
-	}
-
-	// Compute theme match counts: for each top concept, how many suggestions have it.
-	themeHits := make(map[string]int, len(topConcepts))
-	for _, tc := range topConcepts {
-		for _, mem := range suggestions {
-			for _, mc := range mem.Concepts {
-				if mc == tc {
-					themeHits[tc]++
-					break
-				}
-			}
-		}
-	}
-
-	// Compute encoding queue depth and oldest unencoded age.
-	var queueDepth int
-	var oldestUnencoded string
-	unprocessed, listErr := srv.store.ListRawUnprocessed(ctx, 1000)
-	if listErr == nil {
-		queueDepth = len(unprocessed)
-		if queueDepth > 0 {
-			oldest := unprocessed[len(unprocessed)-1]
-			age := time.Since(oldest.CreatedAt)
-			oldestUnencoded = formatDuration(age)
-		}
-	}
-
-	// Compute average encode latency.
-	var avgEncodeLat float64
-	if len(encodeLats) > 0 {
-		var sum float64
-		for _, l := range encodeLats {
-			sum += l
-		}
-		avgEncodeLat = sum / float64(len(encodeLats))
-	}
-
-	// Compute novelty rate.
-	var noveltyPct float64
-	if len(candidates) > 0 {
-		noveltyPct = float64(allPassing) / float64(len(candidates)) * 100
-	}
-
-	// Compute encoding coverage.
-	var coveragePct float64
-	if len(relevant) > 0 {
-		coveragePct = float64(encodedCount) / float64(len(relevant)) * 100
-	}
-
-	// Compute acceptance rate from prior suggestions.
-	var acceptancePct float64
-	if srv.contextTotalOffered > 0 {
-		acceptancePct = float64(srv.contextAccepted) / float64(srv.contextTotalOffered) * 100
-	}
-
-	// Build metrics.
-	metrics := contextMetrics{
-		EncodedCount:     encodedCount,
-		FallbackCount:    fallbackCount,
-		CoveragePct:      coveragePct,
-		CandidatesBefore: len(candidates),
-		CandidatesAfter:  allPassing,
-		NoveltyPct:       noveltyPct,
-		ThemeHits:        themeHits,
-		AvgEncodeLatMs:   avgEncodeLat,
-		OldestUnencoded:  oldestUnencoded,
-		QueueDepth:       queueDepth,
-		AcceptancePct:    acceptancePct,
-	}
-
-	// Track suggested IDs for acceptance measurement and tool_usage recording.
-	var suggestedIDs []string
-	for _, mem := range suggestions {
-		srv.contextSuggestedIDs[mem.ID] = time.Now()
-		suggestedIDs = append(suggestedIDs, mem.ID)
-	}
-	srv.contextTotalOffered += len(suggestions)
-	srv.lastSuggestedIDsCSV = strings.Join(suggestedIDs, ",")
-
-	// Step 6: Update watermark.
-	srv.lastContextTime = time.Now()
-
-	srv.log.Info("proactive context generated",
-		"recent_events", len(relevant),
-		"themes", topConcepts,
-		"suggestions", len(suggestions),
-		"encoding_coverage_pct", coveragePct,
-		"novelty_pct", noveltyPct,
-		"queue_depth", queueDepth)
-
-	// Format output.
-	if outputFormat == "json" {
-		jsonResp := map[string]interface{}{
-			"recent_events": len(relevant),
-			"themes":        topConcepts,
-			"suggestions":   formatMemoriesJSON(suggestions),
-			"metrics":       metrics,
-		}
-		jsonBytes, err := json.Marshal(jsonResp)
-		if err != nil {
-			return toolResult("json marshal error"), nil
-		}
-		return toolResult(string(jsonBytes)), nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Recent activity: %d events since last check\n", len(relevant))
-	fmt.Fprintf(&sb, "Activity themes: %v\n\n", topConcepts)
-
-	if len(suggestions) == 0 {
-		sb.WriteString("No new context suggestions — you've already recalled the relevant memories.\n")
-	} else {
-		fmt.Fprintf(&sb, "Suggested context (%d memories you haven't recalled):\n\n", len(suggestions))
-		for i, mem := range suggestions {
-			fmt.Fprintf(&sb, "%d. %s\n   Summary: %s\n   Concepts: %v\n   Created: %s\n\n",
-				i+1, mem.ID, mem.Summary, mem.Concepts,
-				mem.CreatedAt.Format("2006-01-02"))
-		}
-	}
-
-	// Pipeline metrics footer.
-	sb.WriteString("--- Pipeline ---\n")
-	fmt.Fprintf(&sb, "Coverage: %.0f%% encoded (%d/%d)", coveragePct, encodedCount, len(relevant))
-	if queueDepth > 0 {
-		fmt.Fprintf(&sb, " | Queue: %d pending, oldest %s ago", queueDepth, oldestUnencoded)
-	}
-	sb.WriteString("\n")
-	if len(candidates) > 0 {
-		fmt.Fprintf(&sb, "Candidates: %d -> %d after dedup (%.0f%% novel)\n", len(candidates), allPassing, noveltyPct)
-	}
-	if len(themeHits) > 0 {
-		sb.WriteString("Theme hits: [")
-		first := true
-		for _, tc := range topConcepts {
-			if n, ok := themeHits[tc]; ok && n > 0 {
-				if !first {
-					sb.WriteString(", ")
-				}
-				fmt.Fprintf(&sb, "%s:%d", tc, n)
-				first = false
-			}
-		}
-		sb.WriteString("]\n")
-	}
-	if srv.contextTotalOffered > 0 {
-		fmt.Fprintf(&sb, "Acceptance: %.0f%% (%d/%d suggestions led to recall)\n",
-			acceptancePct, srv.contextAccepted, srv.contextTotalOffered)
-	}
-
-	return toolResult(sb.String()), nil
-}
-
-// contextMetrics holds pipeline observability data for the get_context tool.
-type contextMetrics struct {
-	EncodedCount     int            `json:"encoded_count"`
-	FallbackCount    int            `json:"fallback_count"`
-	CoveragePct      float64        `json:"encoding_coverage_pct"`
-	CandidatesBefore int            `json:"candidates_before_dedup"`
-	CandidatesAfter  int            `json:"candidates_after_dedup"`
-	NoveltyPct       float64        `json:"novelty_pct"`
-	ThemeHits        map[string]int `json:"theme_match_counts"`
-	AvgEncodeLatMs   float64        `json:"avg_encode_latency_ms"`
-	OldestUnencoded  string         `json:"oldest_unencoded_age"`
-	QueueDepth       int            `json:"encoding_queue_depth"`
-	AcceptancePct    float64        `json:"acceptance_rate_pct"`
-}
-
 // formatDuration returns a human-readable short duration string.
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
@@ -1477,55 +1068,6 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-}
-
-// handleForget archives a memory by ID.
-func (srv *MCPServer) handleForget(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	// Collect IDs from memory_id (string) and/or memory_ids (array).
-	var ids []string
-	if singleID, ok := args["memory_id"].(string); ok && singleID != "" {
-		ids = append(ids, singleID)
-	}
-	if rawIDs, ok := args["memory_ids"].([]interface{}); ok {
-		for _, raw := range rawIDs {
-			if id, ok := raw.(string); ok && id != "" {
-				ids = append(ids, id)
-			}
-		}
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("either memory_id or memory_ids is required")
-	}
-
-	// Deduplicate.
-	seen := make(map[string]bool, len(ids))
-	var unique []string
-	for _, id := range ids {
-		if !seen[id] {
-			seen[id] = true
-			unique = append(unique, id)
-		}
-	}
-
-	var archived, failed int
-	var failedIDs []string
-	for _, id := range unique {
-		if err := srv.store.UpdateState(ctx, id, "archived"); err != nil {
-			srv.log.Warn("failed to archive memory", "id", id, "error", err)
-			failed++
-			failedIDs = append(failedIDs, id)
-		} else {
-			archived++
-		}
-	}
-
-	srv.log.Info("memories archived", "archived", archived, "failed", failed)
-
-	msg := fmt.Sprintf("Archived %d memories", archived)
-	if failed > 0 {
-		msg += fmt.Sprintf(", %d failed: %v", failed, failedIDs)
-	}
-	return toolResult(msg), nil
 }
 
 // handleStatus returns system statistics and health information.
@@ -1662,12 +1204,9 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 		outputFormat = f
 	}
 
-	// Parse optional filters — default min_salience to 0.7 for project recall
-	// to filter out watcher noise that agents don't need.
+	// Parse optional filters — no default min_salience since all memories
+	// are now deliberate MCP memories (watchers removed).
 	source, state, memType, minSalience := parseRecallFilters(args)
-	if _, explicit := args["min_salience"]; !explicit && minSalience == 0 {
-		minSalience = 0.7
-	}
 
 	// Get project summary
 	summary, err := srv.store.GetProjectSummary(ctx, project)
@@ -1707,44 +1246,6 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 		for _, p := range patterns {
 			text += fmt.Sprintf("  - [%.2f] %s: %s\n", p.Strength, p.Title, p.Description)
 		}
-	}
-
-	// Include recent daemon activity summary (merged from get_context).
-	// Shows what the watcher observed since last check — proactive context.
-	since := srv.lastContextTime
-	tenMinAgo := time.Now().Add(-10 * time.Minute)
-	if tenMinAgo.Before(since) {
-		since = tenMinAgo
-	}
-	if raws, err := srv.store.ListRawMemoriesAfter(ctx, since, 20); err == nil {
-		var activity []store.RawMemory
-		for _, raw := range raws {
-			if raw.Source == "mcp" {
-				continue // skip agent's own memories
-			}
-			if project != "" && raw.Project != "" && raw.Project != project {
-				continue
-			}
-			activity = append(activity, raw)
-		}
-		if len(activity) > 0 {
-			text += fmt.Sprintf("\nRecent activity (%d events):\n", len(activity))
-			shown := len(activity)
-			if shown > 5 {
-				shown = 5
-			}
-			for _, raw := range activity[:shown] {
-				snippet := raw.Content
-				if len(snippet) > 80 {
-					snippet = snippet[:80]
-				}
-				text += fmt.Sprintf("  - [%s] %s: %s\n", raw.Source, raw.CreatedAt.Format("15:04"), snippet)
-			}
-			if len(activity) > 5 {
-				text += fmt.Sprintf("  ... and %d more\n", len(activity)-5)
-			}
-		}
-		srv.lastContextTime = time.Now()
 	}
 
 	// Collect memories from either the retrieval agent or recent project search.
@@ -1813,251 +1314,6 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 	if synthesis != "" {
 		text += fmt.Sprintf("\nSynthesis:\n%s\n", synthesis)
 	}
-
-	return toolResult(text), nil
-}
-
-// handleRecallTimeline retrieves memories in chronological order within a time range.
-func (srv *MCPServer) handleRecallTimeline(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	hoursBack := 24
-	if h, ok := args["hours_back"].(float64); ok {
-		hoursBack = int(h)
-	}
-
-	limit := 20
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
-	}
-
-	source, state, memType, minSalience := parseRecallFilters(args)
-
-	outputFormat := "text"
-	if f, ok := args["format"].(string); ok && f == "json" {
-		outputFormat = f
-	}
-
-	from := time.Now().Add(-time.Duration(hoursBack) * time.Hour)
-	to := time.Now()
-
-	memories, err := srv.store.ListMemoriesByTimeRange(ctx, from, to, limit)
-	if err != nil {
-		srv.log.Error("timeline recall failed", "error", err)
-		return nil, fmt.Errorf("timeline recall failed: %w", err)
-	}
-
-	filtered := filterMemories(memories, source, state, memType, minSalience)
-
-	srv.log.Info("timeline recall completed", "hours_back", hoursBack, "memories", len(filtered))
-
-	if outputFormat == "json" {
-		jsonResp := map[string]interface{}{
-			"hours_back": hoursBack,
-			"memories":   formatMemoriesJSON(filtered),
-		}
-		jsonBytes, err := json.Marshal(jsonResp)
-		if err != nil {
-			return toolResult("json marshal error"), nil
-		}
-		return toolResult(string(jsonBytes)), nil
-	}
-
-	text := fmt.Sprintf("Timeline (last %dh, %d memories):\n\n", hoursBack, len(filtered))
-	for i, mem := range filtered {
-		projectInfo := ""
-		if mem.Project != "" {
-			projectInfo = fmt.Sprintf(" [%s]", mem.Project)
-		}
-		text += fmt.Sprintf("%d. %s%s\n   %s\n   Concepts: %v\n\n",
-			i+1, mem.Timestamp.Format("2006-01-02 15:04:05"), projectInfo,
-			mem.Summary, mem.Concepts)
-	}
-
-	return toolResult(text), nil
-}
-
-// handleSessionSummary summarizes the current or specified session.
-func (srv *MCPServer) handleSessionSummary(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	sessionID := srv.sessionID
-	if s, ok := args["session_id"].(string); ok && s != "" {
-		sessionID = s
-	}
-
-	// Get the open episode for session context
-	episode, err := srv.store.GetOpenEpisode(ctx)
-	if err != nil {
-		srv.log.Debug("no open episode for session summary", "error", err)
-	}
-
-	// Get recent memories from this session (by time, since session_id on memories
-	// is set during encoding, we look at recent activity)
-	from := time.Now().Add(-12 * time.Hour)
-	memories, err := srv.store.ListMemoriesByTimeRange(ctx, from, time.Now(), 20)
-	if err != nil {
-		srv.log.Error("failed to get session memories", "error", err)
-		return nil, fmt.Errorf("failed to get session memories: %w", err)
-	}
-
-	text := fmt.Sprintf("Session Summary: %s\n", sessionID)
-	text += fmt.Sprintf("Project: %s\n\n", srv.project)
-
-	if episode.ID != "" {
-		text += fmt.Sprintf("Current episode: %s (%d events)\n", episode.ID, len(episode.RawMemoryIDs))
-		if episode.Summary != "" {
-			text += fmt.Sprintf("Episode summary: %s\n", episode.Summary)
-		}
-		text += "\n"
-	}
-
-	if len(memories) == 0 {
-		text += "No memories recorded in this session yet.\n"
-	} else {
-		// Categorize memories by type
-		decisions := 0
-		errors := 0
-		insights := 0
-		for _, mem := range memories {
-			for _, c := range mem.Concepts {
-				switch {
-				case strings.Contains(c, "decision"):
-					decisions++
-				case strings.Contains(c, "error"):
-					errors++
-				case strings.Contains(c, "insight"):
-					insights++
-				}
-			}
-		}
-
-		text += fmt.Sprintf("Activity: %d memories", len(memories))
-		if decisions > 0 {
-			text += fmt.Sprintf(", %d decisions", decisions)
-		}
-		if errors > 0 {
-			text += fmt.Sprintf(", %d errors", errors)
-		}
-		if insights > 0 {
-			text += fmt.Sprintf(", %d insights", insights)
-		}
-		text += "\n\nRecent:\n"
-
-		showCount := len(memories)
-		if showCount > 10 {
-			showCount = 10
-		}
-		for i := 0; i < showCount; i++ {
-			mem := memories[i]
-			text += fmt.Sprintf("  %d. [%s] %s\n", i+1, mem.Timestamp.Format("15:04"), mem.Summary)
-		}
-	}
-
-	srv.log.Info("session summary generated", "session_id", sessionID, "memories", len(memories))
-
-	return toolResult(text), nil
-}
-
-// handleGetPatterns retrieves discovered patterns.
-func (srv *MCPServer) handleGetPatterns(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	project := ""
-	if p, ok := args["project"].(string); ok {
-		project = p
-	}
-
-	limit := 10
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
-	}
-
-	minStrength := float32(0.3)
-	if ms, ok := args["min_strength"].(float64); ok {
-		minStrength = float32(ms)
-	}
-
-	patterns, err := srv.store.ListPatterns(ctx, project, limit)
-	if err != nil {
-		srv.log.Error("failed to list patterns", "error", err)
-		return nil, fmt.Errorf("failed to list patterns: %w", err)
-	}
-
-	// Filter by minimum strength
-	if minStrength > 0 {
-		filtered := patterns[:0]
-		for _, p := range patterns {
-			if p.Strength >= minStrength {
-				filtered = append(filtered, p)
-			}
-		}
-		patterns = filtered
-	}
-
-	if len(patterns) == 0 {
-		return toolResult("No patterns discovered yet. Patterns emerge as the system processes more memories and runs consolidation cycles."), nil
-	}
-
-	text := fmt.Sprintf("Discovered Patterns (%d):\n\n", len(patterns))
-	for i, p := range patterns {
-		projectInfo := ""
-		if p.Project != "" {
-			projectInfo = fmt.Sprintf(" [%s]", p.Project)
-		}
-		text += fmt.Sprintf("%d. [%s] %s%s\n   Type: %s | Strength: %.2f | Evidence: %d memories\n   %s\n   Concepts: %v\n\n",
-			i+1, p.ID, p.Title, projectInfo, p.PatternType, p.Strength, len(p.EvidenceIDs),
-			p.Description, p.Concepts)
-	}
-
-	srv.log.Info("patterns retrieved", "count", len(patterns))
-
-	return toolResult(text), nil
-}
-
-// handleGetInsights returns metacognition observations and abstractions.
-func (srv *MCPServer) handleGetInsights(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	limit := 10
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
-	}
-
-	observations, err := srv.store.ListMetaObservations(ctx, "", limit)
-	if err != nil {
-		srv.log.Error("failed to list observations", "error", err)
-		return nil, fmt.Errorf("failed to list observations: %w", err)
-	}
-
-	abstractions, err := srv.store.ListAbstractions(ctx, 0, limit)
-	if err != nil {
-		srv.log.Warn("failed to list abstractions", "error", err)
-	}
-
-	text := "Mnemonic Insights:\n\n"
-
-	if len(abstractions) > 0 {
-		text += fmt.Sprintf("Abstractions (%d):\n", len(abstractions))
-		for _, a := range abstractions {
-			levelName := "pattern"
-			switch a.Level {
-			case 2:
-				levelName = "principle"
-			case 3:
-				levelName = "axiom"
-			}
-			text += fmt.Sprintf("  - [%s] [L%d %s] %s (confidence: %.2f)\n    %s\n",
-				a.ID, a.Level, levelName, a.Title, a.Confidence, a.Description)
-		}
-		text += "\n"
-	}
-
-	if len(observations) > 0 {
-		text += fmt.Sprintf("Observations (%d):\n", len(observations))
-		for _, obs := range observations {
-			text += fmt.Sprintf("  - [%s] %s (%s)\n",
-				obs.Severity, obs.ObservationType, obs.CreatedAt.Format("2006-01-02 15:04"))
-		}
-	}
-
-	if len(abstractions) == 0 && len(observations) == 0 {
-		text += "No insights available yet. Insights emerge as the system processes more memories and runs analysis cycles.\n"
-	}
-
-	srv.log.Info("insights retrieved", "observations", len(observations), "abstractions", len(abstractions))
 
 	return toolResult(text), nil
 }
@@ -2227,224 +1483,6 @@ func (srv *MCPServer) handleFeedback(ctx context.Context, args map[string]interf
 	return toolResult(responseText), nil
 }
 
-// handleAuditEncodings returns recent raw→encoded memory pairs for quality review.
-func (srv *MCPServer) handleAuditEncodings(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	limit := 5
-	if l, ok := args["limit"].(float64); ok && int(l) > 0 {
-		limit = int(l)
-		if limit > 20 {
-			limit = 20
-		}
-	}
-
-	hoursBack := 24
-	if h, ok := args["hours_back"].(float64); ok && int(h) > 0 {
-		hoursBack = int(h)
-	}
-
-	sourceFilter := ""
-	if s, ok := args["source"].(string); ok {
-		sourceFilter = s
-	}
-
-	after := time.Now().Add(-time.Duration(hoursBack) * time.Hour)
-
-	// Fetch recent raw memories — get extra to account for source filtering
-	raws, err := srv.store.ListRawMemoriesAfter(ctx, after, limit*3)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list raw memories: %w", err)
-	}
-
-	type auditPair struct {
-		raw store.RawMemory
-		mem *store.Memory
-	}
-
-	var pairs []auditPair
-	for _, raw := range raws {
-		if sourceFilter != "" && raw.Source != sourceFilter {
-			continue
-		}
-		if len(pairs) >= limit {
-			break
-		}
-
-		p := auditPair{raw: raw}
-
-		// Look up the encoded memory by raw ID
-		if mem, err := srv.store.GetMemoryByRawID(ctx, raw.ID); err == nil {
-			p.mem = &mem
-		}
-
-		pairs = append(pairs, p)
-	}
-
-	if len(pairs) == 0 {
-		return toolResult(fmt.Sprintf("No raw memories found in the last %d hours (source filter: %q).", hoursBack, sourceFilter)), nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Encoding Audit — last %dh, %d pair(s):\n\n", hoursBack, len(pairs))
-
-	for i, p := range pairs {
-		fmt.Fprintf(&sb, "--- Pair %d ---\n", i+1)
-		fmt.Fprintf(&sb, "RAW ID:      %s\n", p.raw.ID)
-		fmt.Fprintf(&sb, "Source:      %s\n", p.raw.Source)
-		fmt.Fprintf(&sb, "Type:        %s\n", p.raw.Type)
-		fmt.Fprintf(&sb, "Timestamp:   %s\n", p.raw.Timestamp.Format("2006-01-02 15:04:05"))
-
-		rawContent := p.raw.Content
-		if len(rawContent) > 300 {
-			rawContent = rawContent[:300] + "..."
-		}
-		fmt.Fprintf(&sb, "Raw Content: %s\n", rawContent)
-		sb.WriteString("\n")
-
-		if p.mem != nil {
-			fmt.Fprintf(&sb, "ENCODED ID:  %s\n", p.mem.ID)
-			fmt.Fprintf(&sb, "Summary:     %s\n", p.mem.Summary)
-			fmt.Fprintf(&sb, "Concepts:    %v\n", p.mem.Concepts)
-			fmt.Fprintf(&sb, "Salience:    %.2f\n", p.mem.Salience)
-			fmt.Fprintf(&sb, "Content:     %s\n", p.mem.Content)
-			fmt.Fprintf(&sb, "State:       %s\n", p.mem.State)
-			fmt.Fprintf(&sb, "AccessCount: %d\n", p.mem.AccessCount)
-		} else {
-			sb.WriteString("ENCODED:     (not yet encoded or encoding failed)\n")
-		}
-		sb.WriteString("\n")
-	}
-
-	srv.log.Info("audit_encodings completed", "pairs", len(pairs), "hours_back", hoursBack)
-	return toolResult(sb.String()), nil
-}
-
-// handleCoachLocalLLM writes coaching instructions for the local LLM.
-func (srv *MCPServer) handleCoachLocalLLM(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	coachingYAML, ok := args["coaching_yaml"].(string)
-	if !ok || strings.TrimSpace(coachingYAML) == "" {
-		return nil, fmt.Errorf("coaching_yaml parameter is required and must be a non-empty string")
-	}
-
-	// Validate: must be parseable YAML with a 'coaching' key
-	var check map[string]interface{}
-	if err := json.Unmarshal([]byte(coachingYAML), &check); err != nil {
-		// Not JSON — try YAML parsing via a simpler check
-		// We can't import yaml in mcp package easily, so validate structure via json roundtrip
-		// Actually, just check that it contains "coaching:" as a basic validation
-		if !strings.Contains(coachingYAML, "coaching:") {
-			return nil, fmt.Errorf("coaching_yaml must contain a top-level 'coaching:' key")
-		}
-	} else {
-		if _, ok := check["coaching"]; !ok {
-			return nil, fmt.Errorf("coaching_yaml must have a top-level 'coaching' key")
-		}
-	}
-
-	// Determine write path
-	path := srv.coachingFile
-	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("cannot determine coaching file path: %w", err)
-		}
-		path = home + "/.mnemonic/coaching.yaml"
-	}
-
-	// Ensure parent directory exists
-	dir := path[:strings.LastIndex(path, "/")]
-	if dir != "" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create coaching file directory: %w", err)
-		}
-	}
-
-	// Write atomically: write to temp file, rename
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(coachingYAML), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write coaching file: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		// Cleanup temp file on rename failure
-		_ = os.Remove(tmpPath)
-		return nil, fmt.Errorf("failed to finalize coaching file: %w", err)
-	}
-
-	srv.log.Info("coaching file written", "path", path)
-	return toolResult(fmt.Sprintf(
-		"Coaching file written to %s.\n\nNote: Restart the mnemonic daemon (`mnemonic restart`) for encoding agents to pick up the new coaching instructions.",
-		path,
-	)), nil
-}
-
-// handleIngestProject ingests a local directory into the memory system.
-func (srv *MCPServer) handleIngestProject(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	directory, ok := args["directory"].(string)
-	if !ok || directory == "" {
-		return nil, fmt.Errorf("directory parameter is required and must be a string")
-	}
-
-	project := ""
-	if p, ok := args["project"].(string); ok {
-		project = p
-	}
-
-	dryRun := false
-	if d, ok := args["dry_run"].(bool); ok {
-		dryRun = d
-	}
-
-	cfg := ingest.Config{
-		Dir:             directory,
-		Project:         project,
-		DryRun:          dryRun,
-		ExcludePatterns: srv.excludePatterns,
-		MaxContentBytes: srv.maxContentBytes,
-	}
-
-	result, err := ingest.Run(ctx, cfg, srv.store, srv.bus, srv.log)
-	if err != nil {
-		return nil, fmt.Errorf("ingest failed: %w", err)
-	}
-
-	if dryRun {
-		return toolResult(fmt.Sprintf(
-			"Dry run: found %d files in %s (project: %s). Nothing written.",
-			result.FilesFound, directory, result.Project,
-		)), nil
-	}
-
-	text := fmt.Sprintf(
-		"Ingested %s (project: %s)\n\n"+
-			"  Files found: %d\n"+
-			"  Files written: %d\n"+
-			"  Documents extracted: %d\n"+
-			"  Document chunks created: %d\n"+
-			"  Duplicates skipped: %d\n"+
-			"  Files skipped (binary/empty): %d\n"+
-			"  Files failed: %d\n"+
-			"  Elapsed: %s",
-		directory, result.Project,
-		result.FilesFound, result.FilesWritten,
-		result.FilesExtracted, result.ChunksCreated,
-		result.DuplicatesSkipped, result.FilesSkipped,
-		result.FilesFailed, result.Elapsed.Round(time.Millisecond),
-	)
-
-	if result.FilesWritten > 0 {
-		encodeEstimate := result.FilesWritten * 8
-		text += fmt.Sprintf("\n\n  The daemon will encode these over the next ~%d minutes.", encodeEstimate/60)
-	}
-
-	srv.log.Info("ingest completed via MCP",
-		"directory", directory,
-		"project", result.Project,
-		"files_written", result.FilesWritten,
-		"files_extracted", result.FilesExtracted,
-		"chunks_created", result.ChunksCreated)
-
-	return toolResult(text), nil
-}
-
 // Helper functions
 
 // errorResponse creates a JSON-RPC error response.
@@ -2587,133 +1625,6 @@ func (srv *MCPServer) onSessionEnd(ctx context.Context) {
 	srv.log.Info("MCP session ended", "session_id", srv.sessionID, "memories_created", memCount)
 }
 
-// handleListSessions returns recent MCP sessions with metadata.
-func (srv *MCPServer) handleListSessions(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	limit := 10
-	if l, ok := args["limit"].(float64); ok && int(l) > 0 {
-		limit = int(l)
-	}
-
-	daysBack := 30
-	if d, ok := args["days_back"].(float64); ok && int(d) > 0 {
-		daysBack = int(d)
-	}
-
-	since := time.Now().AddDate(0, 0, -daysBack)
-	sessions, err := srv.store.ListSessions(ctx, since, limit)
-	if err != nil {
-		return nil, fmt.Errorf("listing sessions: %w", err)
-	}
-
-	if len(sessions) == 0 {
-		return toolResult("No sessions found."), nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Found %d sessions:\n\n", len(sessions))
-	for i, s := range sessions {
-		fmt.Fprintf(&sb, "%d. %s\n   Time: %s to %s\n   Memories: %d\n\n",
-			i+1, s.SessionID,
-			s.StartTime.Format("2006-01-02 15:04"),
-			s.EndTime.Format("2006-01-02 15:04"),
-			s.MemoryCount)
-	}
-	return toolResult(sb.String()), nil
-}
-
-// handleRecallSession retrieves all memories from a specific session.
-func (srv *MCPServer) handleRecallSession(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	sessionID, ok := args["session_id"].(string)
-	if !ok || sessionID == "" {
-		return nil, fmt.Errorf("session_id parameter is required")
-	}
-
-	// Allow "current" to resolve to the active MCP session.
-	if sessionID == "current" {
-		sessionID = srv.sessionID
-	}
-
-	limit := 20
-	if l, ok := args["limit"].(float64); ok && int(l) > 0 {
-		limit = int(l)
-	}
-
-	outputFormat := "text"
-	if f, ok := args["format"].(string); ok && f == "json" {
-		outputFormat = f
-	}
-
-	memories, err := srv.store.GetSessionMemories(ctx, sessionID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("getting session memories: %w", err)
-	}
-
-	if len(memories) == 0 {
-		if outputFormat == "json" {
-			jsonBytes, _ := json.Marshal(map[string]interface{}{
-				"session_id": sessionID,
-				"memories":   []interface{}{},
-			})
-			return toolResult(string(jsonBytes)), nil
-		}
-		return toolResult(fmt.Sprintf("No memories found for session %s.", sessionID)), nil
-	}
-
-	if outputFormat == "json" {
-		jsonResp := map[string]interface{}{
-			"session_id": sessionID,
-			"memories":   formatMemoriesJSON(memories),
-		}
-		jsonBytes, err := json.Marshal(jsonResp)
-		if err != nil {
-			return toolResult("json marshal error"), nil
-		}
-		return toolResult(string(jsonBytes)), nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Session %s (%d memories):\n\n", sessionID, len(memories))
-	for i, mem := range memories {
-		fmt.Fprintf(&sb, "%d. [%s] %s\n   Summary: %s\n   Concepts: %v\n   Type: %s\n\n",
-			i+1, mem.CreatedAt.Format("15:04:05"), mem.ID, mem.Summary, mem.Concepts, mem.Type)
-	}
-	return toolResult(sb.String()), nil
-}
-
-// handleExcludePath adds a watcher exclusion pattern to the DB.
-func (srv *MCPServer) handleExcludePath(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	pattern, ok := args["pattern"].(string)
-	if !ok || pattern == "" {
-		return nil, fmt.Errorf("pattern parameter is required")
-	}
-
-	if err := srv.store.AddRuntimeExclusion(ctx, pattern); err != nil {
-		return nil, fmt.Errorf("adding exclusion: %w", err)
-	}
-
-	srv.log.Info("runtime exclusion added", "pattern", pattern)
-	return toolResult(fmt.Sprintf("Added exclusion pattern %q. Takes effect on daemon restart.", pattern)), nil
-}
-
-// handleListExclusions returns all runtime watcher exclusion patterns.
-func (srv *MCPServer) handleListExclusions(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	patterns, err := srv.store.ListRuntimeExclusions(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing exclusions: %w", err)
-	}
-
-	if len(patterns) == 0 {
-		return toolResult("No runtime exclusions configured. Use exclude_path to add patterns."), nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Runtime exclusions (%d):\n", len(patterns))
-	for _, p := range patterns {
-		fmt.Fprintf(&sb, "  - %s\n", p)
-	}
-	return toolResult(sb.String()), nil
-}
-
 // handleAmend updates a memory's content in place, preserving associations and history.
 func (srv *MCPServer) handleAmend(ctx context.Context, args map[string]interface{}) (interface{}, error) {
 	memoryID, ok := args["memory_id"].(string)
@@ -2749,205 +1660,4 @@ func (srv *MCPServer) handleAmend(ctx context.Context, args map[string]interface
 
 	srv.log.Info("memory amended", "memory_id", memoryID)
 	return toolResult(fmt.Sprintf("Amended memory %s. Content updated, associations and history preserved. Salience bumped +0.05.", memoryID)), nil
-}
-
-// handleCheckMemory inspects a memory's encoding status, concepts, and associations.
-func (srv *MCPServer) handleCheckMemory(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	rawID, _ := args["raw_id"].(string)
-	memoryID, _ := args["memory_id"].(string)
-
-	if rawID == "" && memoryID == "" {
-		return nil, fmt.Errorf("at least one of raw_id or memory_id is required")
-	}
-
-	// Try to find the encoded memory
-	var mem store.Memory
-	var found bool
-
-	if memoryID != "" {
-		m, err := srv.store.GetMemory(ctx, memoryID)
-		if err == nil {
-			mem = m
-			found = true
-		}
-	}
-
-	if !found && rawID != "" {
-		m, err := srv.store.GetMemoryByRawID(ctx, rawID)
-		if err == nil {
-			mem = m
-			found = true
-		}
-	}
-
-	if !found {
-		// Check if the raw memory exists but hasn't been encoded yet
-		if rawID != "" {
-			raw, err := srv.store.GetRaw(ctx, rawID)
-			if err != nil {
-				return toolResult(fmt.Sprintf("No memory found for raw_id %q or memory_id %q.", rawID, memoryID)), nil
-			}
-			status := "pending encoding"
-			if raw.Processed {
-				status = "deduplicated — a similar memory already existed, so this one boosted its salience instead of creating a duplicate"
-			}
-			return toolResult(fmt.Sprintf("Raw memory %s found but not yet encoded.\n  Status: %s\n  Source: %s\n  Type: %s\n  Salience: %.2f\n  Created: %s",
-				raw.ID, status, raw.Source, raw.Type, raw.InitialSalience, raw.CreatedAt.Format(time.RFC3339))), nil
-		}
-		return toolResult(fmt.Sprintf("No memory found for memory_id %q.", memoryID)), nil
-	}
-
-	// Get associations
-	assocs, err := srv.store.GetAssociations(ctx, mem.ID)
-	if err != nil {
-		assocs = nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Memory %s (encoded)\n", mem.ID)
-	fmt.Fprintf(&sb, "  Raw ID: %s\n", mem.RawID)
-	fmt.Fprintf(&sb, "  Summary: %s\n", mem.Summary)
-	fmt.Fprintf(&sb, "  Concepts: %v\n", mem.Concepts)
-	fmt.Fprintf(&sb, "  Salience: %.2f\n", mem.Salience)
-	fmt.Fprintf(&sb, "  State: %s\n", mem.State)
-	fmt.Fprintf(&sb, "  Access count: %d\n", mem.AccessCount)
-	fmt.Fprintf(&sb, "  Source: %s\n", mem.Source)
-	fmt.Fprintf(&sb, "  Type: %s\n", mem.Type)
-	fmt.Fprintf(&sb, "  Created: %s\n", mem.CreatedAt.Format(time.RFC3339))
-	fmt.Fprintf(&sb, "  Associations: %d\n", len(assocs))
-
-	for i, a := range assocs {
-		if i >= 5 {
-			fmt.Fprintf(&sb, "  ... and %d more\n", len(assocs)-5)
-			break
-		}
-		targetMem, err := srv.store.GetMemory(ctx, a.TargetID)
-		summary := a.TargetID
-		if err == nil {
-			summary = targetMem.Summary
-			if len(summary) > 80 {
-				summary = summary[:80] + "..."
-			}
-		}
-		fmt.Fprintf(&sb, "    [%.2f, %s] %s\n", a.Strength, a.RelationType, summary)
-	}
-
-	return toolResult(sb.String()), nil
-}
-
-// handleDismissPattern archives a pattern by ID.
-func (srv *MCPServer) handleDismissPattern(_ context.Context, args map[string]interface{}) (interface{}, error) {
-	patternID, _ := args["pattern_id"].(string)
-	if patternID == "" {
-		return nil, fmt.Errorf("pattern_id is required")
-	}
-
-	if err := srv.store.ArchivePattern(context.Background(), patternID); err != nil {
-		return nil, fmt.Errorf("archiving pattern %s: %w", patternID, err)
-	}
-
-	srv.log.Info("pattern dismissed", "pattern_id", patternID, "session_id", srv.sessionID)
-	return toolResult(fmt.Sprintf("Pattern %s archived", patternID)), nil
-}
-
-// handleDismissAbstraction archives an abstraction by ID.
-func (srv *MCPServer) handleDismissAbstraction(_ context.Context, args map[string]interface{}) (interface{}, error) {
-	abstractionID, _ := args["abstraction_id"].(string)
-	if abstractionID == "" {
-		return nil, fmt.Errorf("abstraction_id is required")
-	}
-
-	if err := srv.store.ArchiveAbstraction(context.Background(), abstractionID); err != nil {
-		return nil, fmt.Errorf("archiving abstraction %s: %w", abstractionID, err)
-	}
-
-	srv.log.Info("abstraction dismissed", "abstraction_id", abstractionID, "session_id", srv.sessionID)
-	return toolResult(fmt.Sprintf("Abstraction %s archived", abstractionID)), nil
-}
-
-// handleCreateHandoff stores a structured session handoff note as a high-salience memory.
-func (srv *MCPServer) handleCreateHandoff(ctx context.Context, args map[string]interface{}) (interface{}, error) {
-	// Parse all fields.
-	var completed, pending, toTest, knownIssues []string
-	for _, pair := range []struct {
-		key  string
-		dest *[]string
-	}{
-		{"completed", &completed},
-		{"pending", &pending},
-		{"to_test", &toTest},
-		{"known_issues", &knownIssues},
-	} {
-		if raw, ok := args[pair.key].([]interface{}); ok {
-			for _, v := range raw {
-				if s, ok := v.(string); ok && s != "" {
-					*pair.dest = append(*pair.dest, s)
-				}
-			}
-		}
-	}
-	nextHint, _ := args["next_session_hint"].(string)
-
-	if len(completed) == 0 && len(pending) == 0 && len(toTest) == 0 && len(knownIssues) == 0 && nextHint == "" {
-		return nil, fmt.Errorf("at least one field must be provided")
-	}
-
-	// Format as readable text.
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "SESSION HANDOFF — %s — %s\n\n", srv.project, time.Now().Format("2006-01-02 15:04"))
-	writeSection := func(title string, items []string) {
-		if len(items) == 0 {
-			return
-		}
-		fmt.Fprintf(&sb, "%s:\n", title)
-		for _, item := range items {
-			fmt.Fprintf(&sb, "- %s\n", item)
-		}
-		sb.WriteString("\n")
-	}
-	writeSection("Completed", completed)
-	writeSection("Pending", pending)
-	writeSection("To Test", toTest)
-	writeSection("Known Issues", knownIssues)
-	if nextHint != "" {
-		fmt.Fprintf(&sb, "Next session: %s\n", nextHint)
-	}
-
-	raw := store.RawMemory{
-		ID:              uuid.New().String(),
-		Source:          "mcp",
-		Type:            "handoff",
-		Content:         sb.String(),
-		Timestamp:       time.Now(),
-		CreatedAt:       time.Now(),
-		HeuristicScore:  0.9,
-		InitialSalience: srv.memDefaults.SalienceForType("handoff"),
-		Processed:       false,
-		Project:         srv.project,
-		SessionID:       srv.sessionID,
-		Metadata: map[string]interface{}{
-			"mcp_session_id":    srv.sessionID,
-			"memory_type":       "handoff",
-			"project":           srv.project,
-			"completed":         completed,
-			"pending":           pending,
-			"to_test":           toTest,
-			"known_issues":      knownIssues,
-			"next_session_hint": nextHint,
-		},
-	}
-
-	if err := srv.store.WriteRaw(ctx, raw); err != nil {
-		return nil, fmt.Errorf("failed to store handoff: %w", err)
-	}
-	if srv.bus != nil {
-		_ = srv.bus.Publish(ctx, events.RawMemoryCreated{
-			ID:     raw.ID,
-			Source: raw.Source,
-			Ts:     time.Now(),
-		})
-	}
-
-	srv.log.Info("session handoff created", "id", raw.ID, "project", srv.project)
-	return toolResult(fmt.Sprintf("Handoff stored (id: %s, salience: 0.95)\nWill be surfaced by recall_project in the next session.", raw.ID)), nil
 }
