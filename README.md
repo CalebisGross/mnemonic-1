@@ -73,20 +73,14 @@ mnemonic serve        # Foreground (first run — creates ~/.mnemonic/ automatic
 mnemonic install      # Install as background service (launchd / systemd / Windows Services)
 ```
 
-**Connect to Claude Code** (`~/.claude/settings.local.json`):
+**Connect to your agent:**
 
-```json
-{
-  "mcpServers": {
-    "mnemonic": {
-      "command": "mnemonic",
-      "args": ["mcp"]
-    }
-  }
-}
+```bash
+mnemonic setup claude-code   # Auto-configures ~/.claude/settings.local.json
+mnemonic setup cursor        # Auto-configures ~/.cursor/mcp.json
 ```
 
-That's it. Start a Claude Code session and your agent has persistent memory.
+That's it. Start a session and your agent has persistent memory.
 
 ## Platform Support
 

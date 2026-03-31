@@ -145,6 +145,8 @@ func main() {
 			}
 		}
 		resetPatternsCommand(*configPath, dryRun)
+	case "setup":
+		setupCommand(args)
 	case "generate-token":
 		generateTokenCommand()
 	case "check-update":
