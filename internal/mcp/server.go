@@ -225,15 +225,13 @@ func (srv *MCPServer) handleRequest(ctx context.Context, req *jsonRPCRequest) *j
 // handleInitialize returns the MCP initialization response.
 // serverInstructions returns guidance injected into the agent's context each turn.
 // Keep concise — this competes for context window space.
-const serverInstructions = `Mnemonic is your long-term semantic memory. Use it to persist decisions, errors, insights, and learnings across sessions.
+const serverInstructions = `Mnemonic is your long-term semantic memory. It persists across sessions — what you store now, future agents can recall.
 
 Session start: call recall_project, then recall with task-relevant keywords.
-During work: call remember for decisions, errors, insights worth preserving.
-After recalls: call feedback (helpful/partial/irrelevant) to train retrieval.
-Session end: remember any unstored decisions or insights.
-
-Memory types: decision, error, insight, learning, general. Always set the type.
-Memories are project-scoped and session-tagged automatically.`
+During work: remember decisions, errors, insights worth preserving. Set the type (decision/error/insight/learning/general).
+After recalls: call feedback (helpful/partial/irrelevant) — this trains retrieval ranking via Hebbian learning.
+Direct lookup: recall with id parameter accepts any memory ID (from remember or recall results).
+Memories are project-scoped and session-tagged automatically. Only store what a future session would need — not file paths or things derivable from code.`
 
 func (srv *MCPServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 	result := map[string]interface{}{

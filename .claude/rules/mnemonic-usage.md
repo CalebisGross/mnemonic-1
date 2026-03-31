@@ -1,16 +1,16 @@
 # Mnemonic MCP Tool Usage
 
-## Available Tools (7)
+## Tools (7)
 
 | Tool | Purpose |
 |------|---------|
-| `remember` | Store decisions, errors, insights, learnings |
-| `recall` | Semantic search with spread activation |
-| `recall_project` | Project context + recent activity (use at session start) |
-| `batch_recall` | Multiple recall queries in one round-trip |
-| `feedback` | Rate recall quality (drives Hebbian learning) |
-| `status` | System health check |
-| `amend` | Update a stale memory in place |
+| `remember` | Store a memory (auto-tagged with project + session) |
+| `recall` | Semantic search, or direct ID lookup via `id` param |
+| `recall_project` | Project context at session start |
+| `batch_recall` | Multiple queries in one round-trip |
+| `feedback` | Rate recall quality (trains Hebbian learning) |
+| `status` | System health and stats |
+| `amend` | Update a memory in place (preserves ID + associations) |
 
 ## Session Start
 
@@ -27,6 +27,7 @@ For trivial tasks: skip recall, just do the work.
 ### Remember (be selective)
 
 Only store things a future session would need:
+
 - **Decisions**: "chose X because Y" — `type: "decision"`
 - **Errors**: bugs found and how they were fixed — `type: "error"`
 - **Insights**: non-obvious discoveries — `type: "insight"`
@@ -38,6 +39,10 @@ Do NOT remember: file paths, trivial changes, things derivable from git history 
 
 When entering unfamiliar territory, recall before assuming. Check if there's a prior decision or known issue.
 
+### Direct ID lookup
+
+Use `recall(id: "...")` to look up any memory by ID. Works with IDs from `remember` responses or `recall` results. If a memory was deduplicated, this will tell you.
+
 ### Amend stale memories
 
 If recall returns outdated info, use `amend` to fix it in place. This preserves associations.
@@ -45,6 +50,7 @@ If recall returns outdated info, use `amend` to fix it in place. This preserves 
 ## After Recalls
 
 Call `feedback` after acting on recall results:
+
 - `helpful` — memories informed your work
 - `partial` — some useful, some noise
 - `irrelevant` — didn't help
@@ -53,7 +59,6 @@ This trains retrieval. Skipping it degrades future quality.
 
 ## What NOT to Do
 
-- Don't use `include_patterns` or `include_abstractions` — these produce noise
-- Don't store experiment results in memory — those go in `training/docs/`
+- Don't store experiment results in memory — those go in docs
 - Don't remember things that belong in code comments or commit messages
 - Don't create memories about file structure or architecture — read the code instead
