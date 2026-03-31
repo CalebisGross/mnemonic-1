@@ -2358,6 +2358,20 @@ func (s *SQLiteStore) DeleteOldMetaObservations(ctx context.Context, olderThan t
 }
 
 // GetDeadMemories returns active memories that haven't been accessed since cutoffDate.
+// ArchiveMemory sets a memory's state to archived, removing it from active recall.
+func (s *SQLiteStore) ArchiveMemory(ctx context.Context, memoryID string) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE memories SET state = 'archived', updated_at = datetime('now') WHERE id = ?`, memoryID)
+	if err != nil {
+		return fmt.Errorf("archiving memory %s: %w", memoryID, err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return store.ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLiteStore) GetDeadMemories(ctx context.Context, cutoffDate time.Time) ([]store.Memory, error) {
 	cutoffStr := cutoffDate.Format("2006-01-02 15:04:05")
 	rows, err := s.db.QueryContext(ctx,

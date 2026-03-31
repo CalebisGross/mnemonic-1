@@ -310,6 +310,8 @@ func (srv *MCPServer) handleToolCall(ctx context.Context, req *jsonRPCRequest) *
 		result, toolErr = srv.handleStatus(ctx, params.Arguments)
 	case "amend":
 		result, toolErr = srv.handleAmend(ctx, params.Arguments)
+	case "forget":
+		result, toolErr = srv.handleForget(ctx, params.Arguments)
 	default:
 		return errorResponse(req.ID, -32602, fmt.Sprintf("Unknown tool: %s", params.Name))
 	}
@@ -1697,4 +1699,27 @@ func (srv *MCPServer) handleAmend(ctx context.Context, args map[string]interface
 
 	srv.log.Info("memory amended", "memory_id", memoryID)
 	return toolResult(fmt.Sprintf("Amended memory %s. Content updated, associations and history preserved. Salience bumped +0.05.", memoryID)), nil
+}
+
+// handleForget archives a memory, removing it from active recall results.
+func (srv *MCPServer) handleForget(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+	id, ok := args["id"].(string)
+	if !ok || id == "" {
+		return nil, fmt.Errorf("id parameter is required")
+	}
+
+	if err := srv.store.ArchiveMemory(ctx, id); err != nil {
+		// Try as raw_id
+		if mem, rerr := srv.store.GetMemoryByRawID(ctx, id); rerr == nil {
+			if err2 := srv.store.ArchiveMemory(ctx, mem.ID); err2 != nil {
+				return nil, fmt.Errorf("failed to archive memory: %w", err2)
+			}
+			srv.log.Info("memory archived", "memory_id", mem.ID, "via_raw_id", id)
+			return toolResult(fmt.Sprintf("Archived memory %s", mem.ID)), nil
+		}
+		return nil, fmt.Errorf("memory not found: %s", id)
+	}
+
+	srv.log.Info("memory archived", "memory_id", id)
+	return toolResult(fmt.Sprintf("Archived memory %s", id)), nil
 }

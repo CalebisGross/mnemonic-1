@@ -263,6 +263,7 @@ func (MockStore) SearchAbstractionsByEmbedding(context.Context, []float32, int) 
 }
 func (MockStore) ArchiveAbstraction(context.Context, string) error    { return nil }
 func (MockStore) ArchiveAllAbstractions(context.Context) (int, error) { return 0, nil }
+func (MockStore) ArchiveMemory(context.Context, string) error            { return nil }
 
 // --- Scoped queries ---
 

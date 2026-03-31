@@ -438,6 +438,7 @@ type MemoryStore interface {
 	BatchMergeMemories(ctx context.Context, sourceIDs []string, gist Memory) error
 	DeleteOldArchived(ctx context.Context, olderThan time.Time) (int, error)
 	GetDeadMemories(ctx context.Context, cutoffDate time.Time) ([]Memory, error)
+	ArchiveMemory(ctx context.Context, memoryID string) error
 	WriteMemoryResolution(ctx context.Context, res MemoryResolution) error
 	GetMemoryResolution(ctx context.Context, memoryID string) (MemoryResolution, error)
 	WriteMemoryAttributes(ctx context.Context, attrs MemoryAttributes) error

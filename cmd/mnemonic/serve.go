@@ -15,7 +15,6 @@ import (
 	"github.com/appsprout-dev/mnemonic/internal/agent/consolidation"
 	"github.com/appsprout-dev/mnemonic/internal/agent/dreaming"
 	"github.com/appsprout-dev/mnemonic/internal/agent/encoding"
-	"github.com/appsprout-dev/mnemonic/internal/agent/episoding"
 	"github.com/appsprout-dev/mnemonic/internal/agent/metacognition"
 	"github.com/appsprout-dev/mnemonic/internal/agent/orchestrator"
 	"github.com/appsprout-dev/mnemonic/internal/agent/reactor"
@@ -248,28 +247,6 @@ func serveCommand(configPath string) {
 		return embedding.NewInstrumentedProvider(embProvider, memStore, caller, modelLabel)
 	}
 
-	// --- Start episoding agent (groups raw events into episodes) ---
-	var episodingAgent *episoding.EpisodingAgent
-	if cfg.Episoding.Enabled {
-		pollingInterval := time.Duration(cfg.Episoding.PollingIntervalSec) * time.Second
-		if pollingInterval <= 0 {
-			pollingInterval = 10 * time.Second
-		}
-		episodingCfg := episoding.EpisodingConfig{
-			EpisodeWindowSizeMin: cfg.Episoding.EpisodeWindowSizeMin,
-			MinEventsPerEpisode:  cfg.Episoding.MinEventsPerEpisode,
-			PollingInterval:      pollingInterval,
-			StartupLookback:      cfg.Episoding.StartupLookback,
-			DefaultSalience:      cfg.Episoding.DefaultSalience,
-		}
-		episodingAgent = episoding.NewEpisodingAgent(memStore, wrapEmb("episoding"), log, episodingCfg)
-		if err := episodingAgent.Start(rootCtx, bus); err != nil {
-			log.Error("failed to start episoding agent", "error", err)
-		} else {
-			log.Info("episoding agent started")
-		}
-	}
-
 	// --- Start encoding agent ---
 	var encoder *encoding.EncodingAgent
 	if cfg.Encoding.Enabled {
@@ -419,17 +396,6 @@ func serveCommand(configPath string) {
 		if orch != nil {
 			deps.IncrementAutonomous = orch.IncrementAutonomousCount
 		}
-		deps.ForumAgentPosting = cfg.Forum.AgentPosting
-		deps.ForumMentionResponses = cfg.Forum.MentionResponses
-		deps.ForumMentionMaxTokens = cfg.Forum.MentionMaxTokens
-		deps.ForumMentionTemp = cfg.Forum.MentionTemp
-		deps.ForumPerAgentSubforums = cfg.Forum.PerAgentSubforums
-		deps.ForumDigestPosting = cfg.Forum.DigestPosting
-		// MentionLLM is no longer used — @mention responses are static
-		if retriever != nil {
-			deps.MentionQuery = retriever
-		}
-
 		for _, chain := range reactor.NewChainRegistry(deps) {
 			reactorEngine.RegisterChain(chain)
 		}
@@ -439,14 +405,7 @@ func serveCommand(configPath string) {
 		}
 	}
 
-	// --- Sync project forum categories ---
-	if n, err := memStore.SyncProjectCategories(rootCtx); err != nil {
-		log.Warn("failed to sync project categories", "error", err)
-	} else if n > 0 {
-		log.Info("created forum categories for projects", "count", n)
-	}
-
-	// --- Backfill episode-memory links (fixes encoding/episoding race condition) ---
+	// --- Backfill episode-memory links ---
 	go func() {
 		if n, err := memStore.BackfillEpisodeMemoryLinks(rootCtx); err != nil {
 			log.Warn("failed to backfill episode memory links", "error", err)
@@ -564,9 +523,6 @@ func serveCommand(configPath string) {
 	}
 	if encoder != nil {
 		_ = encoder.Stop()
-	}
-	if episodingAgent != nil {
-		_ = episodingAgent.Stop()
 	}
 	if err := bus.Close(); err != nil {
 		log.Error("error closing event bus", "error", err)

@@ -310,6 +310,31 @@ func amendToolDef() ToolDefinition {
 	}
 }
 
+func forgetToolDef() ToolDefinition {
+	return ToolDefinition{
+		Name:        "forget",
+		Description: "Archive a memory by ID. Removes it from active recall results.",
+		InputSchema: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"id": map[string]interface{}{
+					"type":        "string",
+					"description": "Memory ID to archive",
+				},
+			},
+			"required": []string{"id"},
+		},
+		Annotations: &ToolAnnotations{
+			Title:           "Forget",
+			ReadOnlyHint:    boolPtr(false),
+			DestructiveHint: boolPtr(true),
+		},
+		Meta: map[string]interface{}{
+			"anthropic/searchHint": "forget archive remove delete memory cleanup",
+		},
+	}
+}
+
 // ToolCount returns the number of registered MCP tools.
 func ToolCount() int {
 	return len(allToolDefs())
@@ -318,7 +343,6 @@ func ToolCount() int {
 // allToolDefs returns the complete list of MCP tool definitions.
 func allToolDefs() []ToolDefinition {
 	return []ToolDefinition{
-		// Core tools — what agents actually use
 		rememberToolDef(),
 		recallToolDef(),
 		recallProjectToolDef(),
@@ -326,5 +350,6 @@ func allToolDefs() []ToolDefinition {
 		feedbackToolDef(),
 		statusToolDef(),
 		amendToolDef(),
+		forgetToolDef(),
 	}
 }
