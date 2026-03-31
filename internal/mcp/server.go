@@ -453,8 +453,8 @@ func (srv *MCPServer) handleRemember(ctx context.Context, args map[string]interf
 
 	srv.log.Info("memory stored", "id", raw.ID, "source", source, "type", memType, "project", project)
 
-	msg := fmt.Sprintf("Stored memory %s (type: %s, project: %s)\n  Initial salience: %.2f\n  Encoding: queued (async)\n\nUse this ID with recall (id: %q) or feedback (memory_ids) to reference this memory.",
-		raw.ID, memType, project, raw.InitialSalience, raw.ID)
+	msg := fmt.Sprintf("Stored memory %s (type: %s, project: %s, salience: %.2f)",
+		raw.ID, memType, project, raw.InitialSalience)
 	if len(invalidAssocIDs) > 0 {
 		msg += fmt.Sprintf("\n\nWarning: %d association target(s) not found and skipped: %s",
 			len(invalidAssocIDs), strings.Join(invalidAssocIDs, ", "))
@@ -733,9 +733,9 @@ func (srv *MCPServer) handleRecall(ctx context.Context, args map[string]interfac
 		if mem.Memory.RawID != "" && mem.Memory.RawID != mem.Memory.ID {
 			rawInfo = fmt.Sprintf("\n   Raw ID: %s", mem.Memory.RawID)
 		}
-		text += fmt.Sprintf("%d. [%.3f] %s\n   Summary: %s%s\n   Concepts: %v\n   Created: %s%s%s%s%s\n\n",
+		text += fmt.Sprintf("%d. [%.3f] %s\n   Summary: %s%s\n   Created: %s%s%s%s%s\n\n",
 			i+1, mem.Score, mem.Memory.ID, mem.Memory.Summary, contentSnippet,
-			mem.Memory.Concepts, mem.Memory.CreatedAt.Format("2006-01-02 15:04"), projectInfo, rawInfo, explanationInfo, associationInfo)
+			mem.Memory.CreatedAt.Format("2006-01-02 15:04"), projectInfo, rawInfo, explanationInfo, associationInfo)
 	}
 
 	if result.Synthesis != "" {
@@ -830,10 +830,7 @@ func formatSingleMemory(mem store.Memory) string {
 	text += fmt.Sprintf("  Type: %s\n", mem.Type)
 	text += fmt.Sprintf("  Project: %s\n", mem.Project)
 	text += fmt.Sprintf("  Salience: %.2f\n", mem.Salience)
-	text += fmt.Sprintf("  State: %s\n", mem.State)
-	text += fmt.Sprintf("  Concepts: %v\n", mem.Concepts)
 	text += fmt.Sprintf("  Created: %s\n", mem.CreatedAt.Format("2006-01-02 15:04"))
-	text += fmt.Sprintf("  Accessed: %d times\n", mem.AccessCount)
 	return text
 }
 
@@ -1306,8 +1303,8 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 	// Text output.
 	text += fmt.Sprintf("\nMemories (%d):\n\n", len(resultMemories))
 	for i, mem := range resultMemories {
-		text += fmt.Sprintf("%d. %s\n   Summary: %s\n   Concepts: %v\n   State: %s\n\n",
-			i+1, mem.ID, mem.Summary, mem.Concepts, mem.State)
+		text += fmt.Sprintf("%d. %s\n   %s\n   Created: %s\n\n",
+			i+1, mem.ID, mem.Summary, mem.CreatedAt.Format("2006-01-02 15:04"))
 	}
 	if synthesis != "" {
 		text += fmt.Sprintf("\nSynthesis:\n%s\n", synthesis)
