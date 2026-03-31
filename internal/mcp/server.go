@@ -1287,6 +1287,11 @@ func (srv *MCPServer) handleRecallProject(ctx context.Context, args map[string]i
 
 	if summary != nil {
 		if total, ok := summary["total_memories"]; ok {
+			totalInt, _ := total.(int64)
+			if totalInt == 0 {
+				text += "No memories yet. Use remember to store decisions, errors, insights, and learnings as you work.\n"
+				return toolResult(text), nil
+			}
 			text += fmt.Sprintf("Total memories: %v\n", total)
 		}
 		if lastActivity, ok := summary["last_activity"]; ok {
