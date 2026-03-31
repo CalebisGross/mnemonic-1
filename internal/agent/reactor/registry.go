@@ -13,8 +13,6 @@ import (
 // ChainDeps holds agent references and callbacks needed to build chains.
 type ChainDeps struct {
 	ConsolidationTrigger chan<- struct{}
-	AbstractionTrigger   chan<- struct{}
-	MetacognitionTrigger chan<- struct{}
 	DreamingTrigger      chan<- struct{}
 	IncrementAutonomous  func()
 	MaxDBSizeMB          int
@@ -130,56 +128,7 @@ func NewChainRegistry(deps ChainDeps) []*Chain {
 		})
 	}
 
-	// Chain 4: PatternDiscovered → Abstraction Agent trigger
-	if deps.AbstractionTrigger != nil {
-		chains = append(chains, &Chain{
-			ID:          "abstraction_on_pattern",
-			Name:        "Abstraction: Execute On Pattern Discovery",
-			Description: "Trigger abstraction cycle when a new pattern is discovered",
-			Trigger:     EventTypeMatcher{EventType: events.TypePatternDiscovered},
-			TriggerType: events.TypePatternDiscovered,
-			Conditions:  []Condition{},
-			Actions: []Action{
-				&SendToChannelAction{
-					ChannelName: "abstraction_trigger",
-					Channel:     deps.AbstractionTrigger,
-					Log:         log,
-				},
-			},
-			Cooldown: 0,
-			Priority: 50,
-			Enabled:  true,
-		})
-	}
-
-	// Chain 5: ConsolidationCompleted → Metacognition Agent trigger
-	if deps.MetacognitionTrigger != nil {
-		chains = append(chains, &Chain{
-			ID:          "meta_on_consolidation_completed",
-			Name:        "Metacognition: Execute After Consolidation",
-			Description: "Trigger metacognition cycle when consolidation completes",
-			Trigger:     EventTypeMatcher{EventType: events.TypeConsolidationCompleted},
-			TriggerType: events.TypeConsolidationCompleted,
-			Conditions: []Condition{
-				&CooldownCondition{
-					ChainID:  "meta_on_consolidation_completed",
-					Duration: deps.cooldown("meta_on_consolidation_completed", 30*time.Minute),
-				},
-			},
-			Actions: []Action{
-				&SendToChannelAction{
-					ChannelName: "metacognition_trigger",
-					Channel:     deps.MetacognitionTrigger,
-					Log:         log,
-				},
-			},
-			Cooldown: deps.cooldown("meta_on_consolidation_completed", 30*time.Minute),
-			Priority: 40,
-			Enabled:  true,
-		})
-	}
-
-	// Chain 6: EpisodeClosed → Dreaming Agent trigger
+	// Chain 4: EpisodeClosed → Dreaming Agent trigger
 	if deps.DreamingTrigger != nil {
 		chains = append(chains, &Chain{
 			ID:          "dreaming_on_episode_closed",

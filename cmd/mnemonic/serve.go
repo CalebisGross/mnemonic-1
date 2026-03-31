@@ -11,11 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/appsprout-dev/mnemonic/internal/agent/abstraction"
 	"github.com/appsprout-dev/mnemonic/internal/agent/consolidation"
 	"github.com/appsprout-dev/mnemonic/internal/agent/dreaming"
 	"github.com/appsprout-dev/mnemonic/internal/agent/encoding"
-	"github.com/appsprout-dev/mnemonic/internal/agent/metacognition"
 	"github.com/appsprout-dev/mnemonic/internal/agent/orchestrator"
 	"github.com/appsprout-dev/mnemonic/internal/agent/reactor"
 	"github.com/appsprout-dev/mnemonic/internal/agent/retrieval"
@@ -271,23 +269,6 @@ func serveCommand(configPath string) {
 		}
 	}
 
-	// --- Start metacognition agent ---
-	var metaAgent *metacognition.MetacognitionAgent
-	if cfg.Metacognition.Enabled {
-		metaAgent = metacognition.NewMetacognitionAgent(memStore, wrapEmb("metacognition"), metacognition.MetacognitionConfig{
-			Interval:           cfg.Metacognition.Interval,
-			StartupDelay:       time.Duration(cfg.Metacognition.StartupDelaySec) * time.Second,
-			ReflectionLookback: cfg.Metacognition.ReflectionLookback,
-			DeadMemoryWindow:   cfg.Metacognition.DeadMemoryWindow,
-		}, log)
-
-		if err := metaAgent.Start(rootCtx, bus); err != nil {
-			log.Error("failed to start metacognition agent", "error", err)
-		} else {
-			log.Info("metacognition agent started", "interval", cfg.Metacognition.Interval)
-		}
-	}
-
 	// --- Start dreaming agent ---
 	var dreamer *dreaming.DreamingAgent
 	if cfg.Dreaming.Enabled {
@@ -307,29 +288,6 @@ func serveCommand(configPath string) {
 			log.Error("failed to start dreaming agent", "error", err)
 		} else {
 			log.Info("dreaming agent started", "interval", cfg.Dreaming.Interval)
-		}
-	}
-
-	// --- Start abstraction agent ---
-	var abstractionAgent *abstraction.AbstractionAgent
-	if cfg.Abstraction.Enabled {
-		abstractionAgent = abstraction.NewAbstractionAgent(memStore, wrapEmb("abstraction"), abstraction.AbstractionConfig{
-			Interval:                   cfg.Abstraction.Interval,
-			MinStrength:                cfg.Abstraction.MinStrength,
-			MaxLLMCalls:                cfg.Abstraction.MaxLLMCalls,
-			StartupDelay:               time.Duration(cfg.Abstraction.StartupDelaySec) * time.Second,
-			DefaultConfidence:          cfg.Abstraction.DefaultConfidence,
-			PatternAxiomConfidence:     cfg.Abstraction.PatternAxiomConfidence,
-			ConfidenceModerateDecay:    cfg.Abstraction.ConfidenceModerateDecay,
-			ConfidenceSignificantDecay: cfg.Abstraction.ConfidenceSignificantDecay,
-			ConfidenceSevereDecay:      cfg.Abstraction.ConfidenceSevereDecay,
-			GroundingFloor:             cfg.Abstraction.GroundingFloor,
-		}, log)
-
-		if err := abstractionAgent.Start(rootCtx, bus); err != nil {
-			log.Error("failed to start abstraction agent", "error", err)
-		} else {
-			log.Info("abstraction agent started", "interval", cfg.Abstraction.Interval)
 		}
 	}
 
@@ -381,12 +339,6 @@ func serveCommand(configPath string) {
 		}
 		if consolidator != nil {
 			deps.ConsolidationTrigger = consolidator.GetTriggerChannel()
-		}
-		if abstractionAgent != nil {
-			deps.AbstractionTrigger = abstractionAgent.GetTriggerChannel()
-		}
-		if metaAgent != nil {
-			deps.MetacognitionTrigger = metaAgent.GetTriggerChannel()
 		}
 		if dreamer != nil {
 			deps.DreamingTrigger = dreamer.GetTriggerChannel()
@@ -507,14 +459,8 @@ func serveCommand(configPath string) {
 	if orch != nil {
 		_ = orch.Stop()
 	}
-	if abstractionAgent != nil {
-		_ = abstractionAgent.Stop()
-	}
 	if dreamer != nil {
 		_ = dreamer.Stop()
-	}
-	if metaAgent != nil {
-		_ = metaAgent.Stop()
 	}
 	if consolidator != nil {
 		_ = consolidator.Stop()

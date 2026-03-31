@@ -607,22 +607,18 @@ func TestEngine_FullConsolidationChain(t *testing.T) {
 
 func TestNewChainRegistry(t *testing.T) {
 	consolTrigger := make(chan struct{}, 1)
-	abstrTrigger := make(chan struct{}, 1)
-	metaTrigger := make(chan struct{}, 1)
 	dreamTrigger := make(chan struct{}, 1)
 
 	chains := NewChainRegistry(ChainDeps{
 		ConsolidationTrigger: consolTrigger,
-		AbstractionTrigger:   abstrTrigger,
-		MetacognitionTrigger: metaTrigger,
 		DreamingTrigger:      dreamTrigger,
 		IncrementAutonomous:  func() {},
 		MaxDBSizeMB:          100,
 		Logger:               testLogger(),
 	})
 
-	if len(chains) != 6 {
-		t.Errorf("expected 6 chains, got %d", len(chains))
+	if len(chains) != 4 {
+		t.Errorf("expected 4 chains, got %d", len(chains))
 	}
 
 	// Verify chain IDs
@@ -635,8 +631,6 @@ func TestNewChainRegistry(t *testing.T) {
 		"meta_consolidation_on_dead_ratio",
 		"orch_consolidation_on_db_size",
 		"consolidation_on_request",
-		"abstraction_on_pattern",
-		"meta_on_consolidation_completed",
 		"dreaming_on_episode_closed",
 	}
 	for _, id := range expected {
