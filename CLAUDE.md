@@ -9,7 +9,6 @@ make build                    # go build ...
 make test                     # go test ./... -v
 make check                    # go fmt + go vet
 make run                      # Build and run in foreground (serve mode)
-make lifecycle-test           # Build + run full lifecycle simulation
 golangci-lint run             # Lint (uses .golangci.yml config)
 ```
 
@@ -22,7 +21,7 @@ golangci-lint run             # Lint (uses .golangci.yml config)
 All encoding uses heuristic Go code — no generative LLM calls anywhere:
 
 ```
-MCP remember → raw memory → heuristic encoding (RAKE concepts + salience) → hugot embedding (384-dim MiniLM) → SQLite + FTS5
+MCP remember → raw memory → heuristic encoding (RAKE concepts + salience) → embedding (hugot/bow/api) → SQLite + FTS5
 MCP recall   → FTS5 + embedding search → spread activation → rank → return
 ```
 
@@ -35,21 +34,21 @@ Three embedding providers available via `config.yaml`:
 
 Agents communicate via event bus, never direct calls. Their value is in **side effects** (association strengthening, salience decay, clustering), not text output:
 
-- **Encoding** — Raw events → memories with concepts + embeddings
+- **Encoding** — Raw memories → concepts + embeddings + associations
 - **Retrieval** — FTS5 + vector search + spread activation
 - **Consolidation** — Decay salience, merge related memories, prune dead associations
 - **Dreaming** — Replay memories, strengthen associations, cross-pollinate
 - **Orchestrator** — Schedule agent cycles, health monitoring
 
-Perception watchers (filesystem, git, terminal, clipboard) are **disabled by default** — agents have direct codebase access and watcher-sourced memories create retrieval noise.
+### Unified Memory IDs
+
+`remember` returns an ID. That same ID is used everywhere — `recall`, `feedback`, `amend`. One memory, one ID. Old memories (pre-unification) have a separate `raw_id` field; the `recall(id: ...)` lookup handles both transparently.
 
 ## Project Layout
 
 ```
 cmd/mnemonic/          CLI + daemon entry point
 cmd/benchmark/         End-to-end benchmark
-cmd/benchmark-quality/ Memory quality IR benchmark
-cmd/lifecycle-test/    Full lifecycle simulation
 internal/
   agent/               Cognitive agents + orchestrator + reactor
   api/                 REST API server + routes
@@ -57,16 +56,37 @@ internal/
   mcp/                 MCP server (7 core tools)
   embedding/           Embedding providers (bow, hugot, api) + RAKE + TurboQuant
   store/               Store interface + SQLite implementation
-  llm/                 Legacy LLM provider interface (kept for MCP server compat)
-  watcher/             Filesystem, terminal, clipboard watchers (disabled by default)
+  usage/               Telemetry types (shared across store, embedding, API)
+  fsutil/              Filesystem utilities (path matching, binary detection)
   daemon/              Service management (launchd, systemd, Windows Services)
   events/              Event bus (in-memory pub/sub)
   config/              Config loading (config.yaml)
   logger/              Structured logging (slog)
 sdk/                   Python agent SDK
-training/              Training infrastructure (historical, not active)
 migrations/            SQLite schema migrations
 ```
+
+## MCP Protocol
+
+### Agent Discovery
+
+Tools use MCP protocol metadata for proper agent discovery:
+- `_meta["anthropic/alwaysLoad"]` — core tools (remember, recall, recall_project, batch_recall, feedback) load immediately without ToolSearch
+- `_meta["anthropic/searchHint"]` — all tools have search hints for keyword discovery
+- `annotations` — readOnlyHint, destructiveHint for parallel execution
+- `InitializeResult.instructions` — usage guidance injected into agent context each turn
+
+### Tools (7)
+
+| Tool | Purpose |
+|------|---------|
+| `remember` | Store a memory (auto-tagged with project + session) |
+| `recall` | Semantic search, or direct ID lookup via `id` param |
+| `recall_project` | Project context at session start |
+| `batch_recall` | Multiple queries in one round-trip |
+| `feedback` | Rate recall quality (trains Hebbian learning) |
+| `status` | System health and stats |
+| `amend` | Update a memory in place (preserves ID + associations) |
 
 ## Conventions
 
@@ -84,35 +104,6 @@ migrations/            SQLite schema migrations
 | Linux x86_64 | Full support (systemd) |
 | Windows x86_64 | Full support (Windows Services) |
 
-## MCP Tools (7)
-
-| Tool | Purpose |
-|------|---------|
-| `remember` | Store decisions, errors, insights, learnings |
-| `recall` | Semantic search with spread activation |
-| `recall_project` | Project context + recent activity |
-| `batch_recall` | Multiple recall queries in parallel |
-| `feedback` | Rate recall quality (drives Hebbian learning) |
-| `status` | System health |
-| `amend` | Update a memory in place |
-
-### At Session Start
-
-- `recall_project` — project context
-- `recall` or `batch_recall` — task-specific context
-
-### During Work
-
-- `remember` decisions, errors, insights, learnings
-- `recall` before entering unfamiliar territory
-- `amend` stale memories instead of creating new ones
-
-### After Recalls
-
-- `feedback` — rate quality (helpful/partial/irrelevant)
-
 ## Known Issues
 
 See [GitHub Issues](https://github.com/appsprout-dev/mnemonic/issues) for tracked bugs.
-
-**Active branch:** `feat/heuristic-pipeline` (PR #374) — major refactor removing all LLM dependency.
